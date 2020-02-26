@@ -28,8 +28,8 @@ t1 = threading.Thread(target=update)
 t1.setDaemon(True)
 t1.start()
 
-app = flask.Flask(__name__)
-app.config["DEBUG"] = True
+app = flask.Flask("btcv-api")
+app.config["DEBUG"] = False
 
 
 @app.route('/richestwallets', methods=['GET'])
@@ -44,4 +44,4 @@ def status():
         return jsonify(status)
 
 
-app.run()
+app.run(host='0.0.0.0', port=80)
