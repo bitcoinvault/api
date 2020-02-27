@@ -10,6 +10,7 @@ url = "http://user:password@bitcoind:8332"
 
 #### Build and deployment using docker-compose
 ```sh
+cp -r src/* docker/flask/
 cd docker
 docker-compose build
 docker-compose up
