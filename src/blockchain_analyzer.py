@@ -1,4 +1,4 @@
-import copy
+import time
 
 import requests
 import json
@@ -66,15 +66,13 @@ class RPC:
 
 class BlockchainAnalyzer:
     def __init__(self):
-        try:
-            self.__height_last_update = load_file('height.json')['height']
-            self.__utxo = load_file('utxo.json')
-        except IOError:
-            self.__height_last_update = 0
-            self.__utxo = {}
+        self.__height_last_update = 0
+        self.__utxo = {}
         self.__ten_richest_wallets = []
+        self.__addr_balance = {}
         self.__hashrate = 0
         self.__total_coin_supply = 0
+        time.sleep(15) #wait for other services to start
 
     def __save_data_to_files(self, height):
         save_json({'height': height}, 'height.json')
@@ -110,7 +108,6 @@ class BlockchainAnalyzer:
                 self.__utxo[tx_key] = {'addr': out_addr[0], 'amount': out['value']}
 
     def update_stats(self):
-        addr_balance = dict()
         height = get_block_count()
         self.__hashrate = get_hashrate()
         if self.__height_last_update < height:
@@ -118,22 +115,22 @@ class BlockchainAnalyzer:
                 block = get_block(i)
                 self.__parse_tx(block['tx'])
             self.__height_last_update = height
-        for tx in self.__utxo.values():
-            if tx['addr'] not in addr_balance:
-                addr_balance[tx['addr']] = 0
-            addr_balance[tx['addr']] += tx['amount']
-        ten_richest_addr = sorted(addr_balance.items(), key=lambda kv: (kv[1], kv[0]))[-10:]
-        self.__total_coin_supply = sum(addr_balance.values())
-        self.__ten_richest_wallets = []
-        for i in reversed(range(10)):
-            self.__ten_richest_wallets.append({'address': ten_richest_addr[i][0], 'amount': ten_richest_addr[i][1],
-                                               'percentage_of_total': round(ten_richest_addr[i][1]
-                                                                            / self.__total_coin_supply * 100, 2)})
-        self.__save_data_to_files(height)
-
+            self.__addr_balance = {}
+            for tx in self.__utxo.values():
+                if tx['addr'] not in self.__addr_balance:
+                    self.__addr_balance[tx['addr']] = 0
+                self.__addr_balance[tx['addr']] += tx['amount']
+            ten_richest_addr = sorted(self.__addr_balance.items(), key=lambda kv: (kv[1], kv[0]))[-10:]
+            self.__total_coin_supply = sum(self.__addr_balance.values())
+            self.__ten_richest_wallets = []
+            for i in reversed(range(10)):
+                self.__ten_richest_wallets.append({'address': ten_richest_addr[i][0], 'amount': ten_richest_addr[i][1],
+                                                   'percentage_of_total': round(ten_richest_addr[i][1]
+    
+                                                       / self.__total_coin_supply * 100, 2)})
     def get_status(self):
         return {'height': self.__height_last_update, 'hashrate': self.__hashrate,
                 'total_coin_supply': self.__total_coin_supply}
 
     def get_richest_wallets(self):
-        return copy.deepcopy(self.__ten_richest_wallets)
+        return self.__ten_richest_wallets
