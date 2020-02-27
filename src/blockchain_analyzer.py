@@ -4,7 +4,7 @@ import requests
 import json
 import random
 
-url = "http://user:password@localhost:8332"
+url = "http://user:password@bitcoind:8332"
 
 
 def execute_rpc(rpc):

@@ -28,7 +28,7 @@ t1 = threading.Thread(target=update)
 t1.setDaemon(True)
 t1.start()
 
-app = flask.Flask("btcv-api")
+app = flask.Flask(__name__)
 app.config["DEBUG"] = False
 
 
@@ -43,5 +43,5 @@ def status():
     with lock_status:
         return jsonify(status)
 
-
-app.run(host='0.0.0.0', port=80)
+if __name__ == '__main__':
+    app.run()
