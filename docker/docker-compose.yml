@@ -17,8 +17,8 @@ services:
   bitcoind:
     build: ./bitcoind
     volumes:
-      - /s/btcpool-master/bitcoind/blocks:/bitcoin/blocks/
-      - /s/btcpool-master/bitcoind/chainstate:/bitcoin/chainstate/
+      - /s/bitcoind/blocks:/bitcoin/blocks/
+      - /s/bitcoind/chainstate:/bitcoin/chainstate/
     ports:
       - "8333:8333"
     expose:
