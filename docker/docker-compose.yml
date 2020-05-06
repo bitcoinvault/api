@@ -1,9 +1,33 @@
 version: "3"
 services:
+  daemon:
+    build: ./daemon
+    container_name: daemon
+    restart: always
+    depends_on:
+      - mongo
+      - bitcoind
+
+  mongo:
+    build: ./mongo
+    container_name: mongo
+    restart: always
+    depends_on:
+      - bitcoind
+    expose:
+      - 27017
+      - 28017
+    volumes:
+      - "/var/lib/mongodb:/data/db"
+
   flask:
     build: ./flask
     container_name: flask
     restart: always
+    depends_on:
+      - mongo
+      - nginx
+      - daemon
     expose:
       - 5000
  
