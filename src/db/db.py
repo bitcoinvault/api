@@ -29,7 +29,7 @@ def _create_utxo(tx_key, addr, amount):
     json_utxo = json.dumps({'id':tx_key, 'address':addr, 'value':amount})
     return UTXO.from_json(json_utxo)
     
-def _parse_inputs(txid, vin, utxo, new_utxo):
+def _parse_inputs(txid, vin, utxo, new_utxo, del_utxo):
     for inp in vin:
         if 'coinbase' in inp:
             continue
@@ -40,6 +40,8 @@ def _parse_inputs(txid, vin, utxo, new_utxo):
             db_utxo = utxo.get(id=tx_key)
             if db_utxo.id in new_utxo:
                 del new_utxo[db_utxo.id]
+            else:
+                del_utxo[db_utxo.id] = db_utxo
             db_utxo.delete()
             print('Deleted utxo: ' + db_utxo.to_json())
         except:
@@ -47,7 +49,7 @@ def _parse_inputs(txid, vin, utxo, new_utxo):
                 in_txid) + ", vout: " + str(in_vout)
             raise BaseException(exception_string)
         
-def _parse_outputs(txid, vout, utxo, new_utxo):
+def _parse_outputs(txid, vout, utxo, new_utxo, del_utxo):
     for out in vout:
         out_addresses = out.scriptPubKey.addresses
         if out_addresses == []:
@@ -67,26 +69,26 @@ def _parse_outputs(txid, vout, utxo, new_utxo):
             print('Added utxo: ' + db_utxo.to_json())
         
 def save_address(address):
-    qs = Address.objects(hash=address.hash)
-    if not qs:
+    query_set = Address.objects(hash=address.hash)
+    if not query_set:
         _set_insert_or_update_time(address)
         address.save(force_insert=True)
         print('Added address(' + str(address.hash) + ') to database')
-    elif qs[0].to_mongo() != address.to_mongo():
-        qs.update(balance=address.balance, txs=address.txs, update_time=datetime.now().timestamp())
+    elif query_set[0].to_mongo() != address.to_mongo():
+        query_set.update(balance=address.balance, txs=address.txs, update_time=datetime.now().timestamp())
         print('Updated address(' + str(address.hash) + ') in database')
         
 def create_address(addr, amount):
     json_address = json.dumps({'hash':addr, 'balance':amount, 'txs':[]})
     return Address.from_json(json_address)
     
-def _after_insert_block(block, new_utxo):
+def _after_insert_block(block, new_utxos, del_utxos):
     utxo = get_utxos()
     for tx in block.tx:
-        _parse_inputs(tx.txid, tx.vin, utxo, new_utxo)
-        _parse_outputs(tx.txid, tx.vout, utxo, new_utxo)
+        _parse_inputs(tx.txid, tx.vin, utxo, new_utxos, del_utxos)
+        _parse_outputs(tx.txid, tx.vout, utxo, new_utxos, del_utxos)
 
-def save_block(block):
+def save_block(block, new_utxos, del_utxos):
     if Block.objects(hash=block['hash']):
         return
     
@@ -95,9 +97,7 @@ def save_block(block):
     _set_insert_or_update_time(db_block)
     db_block.save(force_insert=True)
     print('Added block(' + str(db_block.height) + ') to database')
-    utxos = {}
-    _after_insert_block(db_block, utxos)
-    return utxos
+    _after_insert_block(db_block, new_utxos, del_utxos)
     
 def get_blockchain():
     return Block.objects()
