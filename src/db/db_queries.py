@@ -66,12 +66,6 @@ def get_total_coin_supply_query():
     return pipeline
 
 def get_blocks_coinbase_addresses_count_query(interval, lower_height, upper_height):
-#     params = (interval, lower_height, upper_height)
-#     type = 'piechartdata'
-#     cache = get_from_cache_if_exists(type, params)
-#     if cache:
-#         return cache
-#     
     projection = {'tx' : { '$arrayElemAt': ['$tx', 0]}}
     if interval > 0:
         pipeline = get_last_n_blocks_query(interval, projection)
@@ -98,15 +92,8 @@ def get_blocks_coinbase_addresses_count_query(interval, lower_height, upper_heig
     ]
     
     return pipeline
-    #return cache_and_return_result(type, params, pipeline)
 
 def get_transactions_average_volume_query(interval, lower_height, upper_height):
-#     params = (interval, lower_height, upper_height)
-#     type = 'transactionvolume'
-#     cache = get_from_cache_if_exists(type, params)
-#     if cache:
-#         return cache
-#     
     projection = {
         'height' : 1,
         'time' : 1,
@@ -156,15 +143,8 @@ def get_transactions_average_volume_query(interval, lower_height, upper_height):
         }
     ]
     return pipeline
-    #return cache_and_return_result(type, params, pipeline)
     
 def get_blocks_average_difficulty_query(interval, lower_height, upper_height):
-#     params = (interval, lower_height, upper_height)
-#     type = 'miningdifficulty'
-#     cache = get_from_cache_if_exists(type, params)
-#     if cache:
-#         return cache
-#     
     projection = {
         'time' : 1,
         'height' : 1,
@@ -186,4 +166,3 @@ def get_blocks_average_difficulty_query(interval, lower_height, upper_height):
         }
     ]
     return pipeline
-    #return cache_and_return_result(type, params, pipeline)

@@ -23,9 +23,6 @@ def update_addresses(new_utxos, del_utxos):
         addr = db_utxo.address
         amount = db_utxo.value
         addresses[addr].balance -= amount
-        
-        if txid in addresses[addr].txs:
-            addresses[addr].txs.remove(txid)
             
     for address in addresses.values():
         insert_address(address)
