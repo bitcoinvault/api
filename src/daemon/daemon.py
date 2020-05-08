@@ -1,4 +1,6 @@
-from db import create_address, db_host, db_name, drop_db, get_highest_block_number_in_db, save_address, save_block
+from db import db_host, db_name, drop_db, execute_query, get_blockchain, insert_address, insert_block
+from db_queries import get_highest_block_number_in_db_query
+from db_utils import create_address
 from mongoengine import connect
 from rpc import get_block, get_block_count
 import sys
@@ -26,10 +28,15 @@ def update_addresses(new_utxos, del_utxos):
             addresses[addr].txs.remove(txid)
             
     for address in addresses.values():
-        save_address(address)
+        insert_address(address)
         
 def update_blockchain():
-    start_block_number = get_highest_block_number_in_db() + 1
+    def _highest_block_number():
+        pipeline = get_highest_block_number_in_db_query()
+        result = execute_query(pipeline, get_blockchain())
+        return result[0]['height'] if len(result) > 0 else -1
+    
+    start_block_number = _highest_block_number() + 1
     end_block_number = get_block_count() + 1
     new_utxos = {}
     del_utxos = {}
@@ -38,7 +45,7 @@ def update_blockchain():
         block = get_block(idx)
         n_utxos = {}
         d_utxos = {}
-        save_block(block, n_utxos, d_utxos)
+        insert_block(block, n_utxos, d_utxos)
         new_utxos = {**new_utxos, **n_utxos}
         del_utxos = {**del_utxos, **d_utxos}
     update_addresses(new_utxos, del_utxos)
