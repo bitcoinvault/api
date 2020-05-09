@@ -3,7 +3,7 @@ from db_queries import get_highest_block_number_in_db_query
 from db_utils import create_address
 from mongoengine import connect
 from rpc import get_block, get_block_count
-import sys
+import sys, time
         
 def update_addresses(new_utxos, del_utxos):
     addresses = {}
