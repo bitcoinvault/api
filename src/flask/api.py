@@ -10,6 +10,13 @@ db = MongoEngine()
 db.init_app(app)
 analyzer = BlockchainAnalyzer()
 
+period_block_map = {
+    'hour' : 6,
+    'day' : 144,
+    'week' : 1008,
+    'month' : 4320
+}
+
 @app.before_request
 def before_request():
     analyzer.set_blockchain(get_blockchain())
@@ -18,7 +25,7 @@ def before_request():
 
 def _crop_params(interval, lower_height, upper_height):
     if interval < 1: interval = 1
-    elif interval > 1008: interval = 1008
+    elif interval > 4320: interval = 4320
     
     if lower_height < 1: lower_height = 1
     elif lower_height > analyzer.max_block_number(): lower_height = analyzer.max_block_number()
@@ -28,24 +35,25 @@ def _crop_params(interval, lower_height, upper_height):
     
     return interval, lower_height, upper_height
 
-def _range_params():
-    interval = request.args.get('interval', default=144, type=int)
-    upper_height = request.args.get('uh', default=analyzer.max_block_number(), type=int)
-    lower_height = request.args.get('lh', default=upper_height - 1008, type=int)
+def period_to_block_range_and_interval(period):
+    upper_height = analyzer.max_block_number()
     
-    return interval, lower_height, upper_height
+    if period == 'week': return _crop_params(period_block_map['hour'], upper_height - period_block_map['week'], upper_height)
+    if period == 'month' : return _crop_params(period_block_map['day'], upper_height - period_block_map['month'], upper_height)
+    
+    return _crop_params(period_block_map['week'], 1, upper_height)
 
 @app.route('/miningdifficulty', methods=['GET'])
 def mining_difficulty():
-    interval, lower_height, upper_height = _range_params()
-    interval, lower_height, upper_height = _crop_params(interval, lower_height, upper_height)
+    period = request.args.get('period', default='week')
+    interval, lower_height, upper_height = period_to_block_range_and_interval(period)
     difficulty = analyzer.mining_difficulty(interval, lower_height, upper_height)
     return jsonify(difficulty)
     
 @app.route('/transactionvolume', methods=['GET'])
 def transaction_volume():
-    interval, lower_height, upper_height = _range_params()
-    interval, lower_height, upper_height = _crop_params(interval, lower_height, upper_height)
+    period = request.args.get('period', default='week')
+    interval, lower_height, upper_height = period_to_block_range_and_interval(period)
     volume = analyzer.transaction_volume(interval, lower_height, upper_height)
     return jsonify(volume)
     
