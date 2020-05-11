@@ -55,7 +55,7 @@ class BlockchainAnalyzer:
         return wallets
             
     def non_empty_wallets_number(self):
-        pipeline = db.queries.get_nonempty_wallets_number_query()
+        pipeline = db_queries.get_nonempty_wallets_number_query()
         return db.execute_query(pipeline, db.get_addresses())
     
     def max_block_number(self):

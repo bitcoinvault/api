@@ -18,7 +18,7 @@ class UTXO(Document):
 class Address(Document):
     hash = StringField(required=True, primary_key=True)
     balance = FloatField(required=True)
-    txs = ListField(required=True)
+    txs = ListField()
     insert_time = FloatField(required=True)
     update_time = FloatField(required=True)
     

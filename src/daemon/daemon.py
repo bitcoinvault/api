@@ -1,4 +1,4 @@
-from db import db_host, db_name, drop_db, execute_query, get_blockchain, insert_address, insert_block
+from db import db_host, db_name, drop_db, execute_query, get_address, get_blockchain, get_utxos, insert_address, insert_block
 from db_queries import get_highest_block_number_in_db_query
 from db_utils import create_address
 from mongoengine import connect
@@ -12,7 +12,7 @@ def update_addresses(new_utxos, del_utxos):
         addr = db_utxo.address
         amount = db_utxo.value
         if addr not in addresses:
-            addresses[addr] = create_address(addr, amount)
+            addresses[addr] = get_address(addr)
         addresses[addr].balance += amount
         
         if txid not in addresses[addr].txs:
@@ -22,7 +22,8 @@ def update_addresses(new_utxos, del_utxos):
         txid = db_utxo.id[:-1]
         addr = db_utxo.address
         amount = db_utxo.value
-        addresses[addr].balance -= amount
+        if addr in addresses:
+            addresses[addr].balance -= amount
             
     for address in addresses.values():
         insert_address(address)

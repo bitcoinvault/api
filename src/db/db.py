@@ -1,5 +1,5 @@
 from datetime import datetime
-from db_utils import set_insert_or_update_time
+from db_utils import create_address, set_insert_or_update_time
 from models import Address, Block, RequestCache, UTXO 
 from mongoengine import Document
 from rpc import get_block, get_block_count
@@ -14,6 +14,9 @@ def get_blockchain():
 
 def get_addresses():
     return Address.objects()
+
+def get_address(addr):
+    return Address.objects(hash=addr).first()
 
 def get_utxos():
     return UTXO.objects()
@@ -88,6 +91,9 @@ def insert_block(block, new_utxos, del_utxos):
                 db_utxo.save(force_insert=True)
                 new_utxo[db_utxo.id] = db_utxo
                 print('Added utxo: ' + db_utxo.to_json())
+            if not get_address(out_addr):
+                address = create_address(out_addr, 0)
+                insert_address(address)
         
     def _before_insert_block(block, new_utxos, del_utxos):
         utxo = get_utxos()
