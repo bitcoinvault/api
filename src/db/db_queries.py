@@ -103,9 +103,17 @@ def get_transactions_average_volume_query(interval, lower_height, upper_height):
                 'then' : '$$REMOVE',
                 'else' : {'$slice': ['$tx', 1, {'$subtract' : [{'$size': '$tx'}, 1]}]}
             }
+        },
+        'count' : { 
+            '$cond' : {
+                'if' : {'$eq' : [{'$size' : '$tx'}, 1]},
+                'then' : '$$REMOVE',
+                'else' : {'$size' : {'$slice': ['$tx', 1, {'$subtract' : [{'$size': '$tx'}, 1]}]}}
+            }
         }
     }
     boundaries = [lower_height + i * interval for i in range(int((upper_height - lower_height) / interval) + 1)]
+    boundaries[-1] += 1
     pipeline = get_blocks_in_range_query(lower_height, upper_height, projection)
     pipeline += [
         {   '$project' : {
@@ -118,7 +126,8 @@ def get_transactions_average_volume_query(interval, lower_height, upper_height):
                             'in' : { '$concatArrays' : ['$$value', '$$this']}
                         }
                     }
-                }
+                },
+                'count' : 1
             }
         },
         {   '$match' : { 
@@ -133,12 +142,20 @@ def get_transactions_average_volume_query(interval, lower_height, upper_height):
                     'lower_height' : {'$min' : '$height'},
                     'upper_height' : {'$max' : '$height'},
                     'sum' : { '$sum' : '$value' },
-                    'avg' : { '$avg' : '$value' },
-                    'std' : { '$stdDevPop' : '$value' },
                     'min' : { '$min' : '$value' },
                     'max' : { '$max' : '$value' },
-                    'count' : { '$sum' : 1 }
+                    'count' : { '$sum' : '$count' }
                 }
+            }
+        },
+        {   '$project' : {
+                'lower_height' : 1,
+                'upper_height' : 1,
+                'sum' : 1,
+                'avg' : { '$divide' : ['$sum', '$count'] },
+                'min' : 1,
+                'max' : 1,
+                'count' : 1
             }
         }
     ]
@@ -151,6 +168,7 @@ def get_blocks_average_difficulty_query(interval, lower_height, upper_height):
         'difficulty' : 1
     }
     boundaries = [lower_height + i * interval for i in range(int((upper_height - lower_height) / interval) + 1)]
+    boundaries[-1] += 1
     pipeline = get_blocks_in_range_query(lower_height, upper_height, projection)
     pipeline += [
         { '$bucket' : {
