@@ -1,6 +1,12 @@
 from mongoengine import Document, EmbeddedDocument
 from mongoengine.fields import StringField, IntField, ListField, FloatField,\
     EmbeddedDocumentListField, EmbeddedDocumentField
+
+class RequestCache(Document):
+    type = StringField(required=True)
+    params = ListField()
+    result = ListField()
+    last_accessed = IntField(required=True)
     
 class UTXO(Document):
     id = StringField(required=True, primary_key=True)
@@ -12,7 +18,7 @@ class UTXO(Document):
 class Address(Document):
     hash = StringField(required=True, primary_key=True)
     balance = FloatField(required=True)
-    txs = ListField(required=True)
+    txs = ListField()
     insert_time = FloatField(required=True)
     update_time = FloatField(required=True)
     
@@ -75,3 +81,8 @@ class Block(Document):
     difficulty = FloatField(required=True)
     insert_time = FloatField(required=True)
     update_time = FloatField(required=True)
+    
+    meta = {
+        'index_background' : True,
+        'indexes' : ['height']
+    }   
