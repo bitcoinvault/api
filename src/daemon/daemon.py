@@ -68,10 +68,10 @@ def update_blockchain():
         analyzer.set_blockchain(get_blockchain())
         analyzer.set_addresses(get_addresses())
         analyzer.set_utxos(get_utxos())
+        analyzer.piechart_data(100, -1, -1)
         periods = ['week', 'month', 'all']
         for period in periods:
             interval, lower_height, upper_height = period_to_block_range_and_interval(period)
-            analyzer.piechart_data(interval, lower_height, upper_height)
             analyzer.mining_difficulty(interval, lower_height, upper_height)
             analyzer.transaction_volume(interval, lower_height, upper_height)
     

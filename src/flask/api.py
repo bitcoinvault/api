@@ -64,13 +64,7 @@ def non_empty_wallets():
 
 @app.route('/piechartdata', methods=['GET'])
 def piechart_data():
-    interval, lower_height, upper_height = _range_params()
-    if lower_height < 1: lower_height = 1
-    elif lower_height > analyzer.max_block_number(): lower_height = analyzer.max_block_number()
-    if upper_height < lower_height: upper_height = lower_height
-    elif upper_height > analyzer.max_block_number(): upper_height = analyzer.max_block_number()
-    
-    piechart_data = analyzer.piechart_data(interval, lower_height, upper_height)
+    piechart_data = analyzer.piechart_data(100, -1, -1)
     return jsonify(piechart_data)
 
 @app.route('/richestwallets', methods=['GET'])
