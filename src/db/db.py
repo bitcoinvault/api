@@ -26,7 +26,7 @@ def get_cache():
 
 def get_highest_block_number_in_db():
     return get_blockchain().order_by('-height').limit(1).first().height
-
+  
 def drop_db():
     Block.drop_collection()
     Address.drop_collection()

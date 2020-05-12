@@ -34,6 +34,7 @@ def period_to_block_range_and_interval(period):
     if period == 'month' : return _crop_params(period_block_map['day'], upper_height - period_block_map['month'], upper_height)
     
     return _crop_params(period_block_map['week'], 1, upper_height)
+
         
 def update_addresses(new_utxos, del_utxos):
     addresses = {}

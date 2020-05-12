@@ -1,7 +1,7 @@
 from mongoengine import Document, EmbeddedDocument
 from mongoengine.fields import StringField, IntField, ListField, FloatField,\
     EmbeddedDocumentListField, EmbeddedDocumentField
-    
+
 class RequestCache(Document):
     type = StringField(required=True)
     params = ListField()

@@ -4,6 +4,7 @@ import db
 import db_queries
 import time
 
+
 class BlockchainAnalyzer:
     def __init__(self, blockchain=None, addresses=None, utxos=None):
         self.__blockchain = blockchain
