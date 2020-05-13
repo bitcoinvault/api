@@ -64,7 +64,7 @@ def non_empty_wallets():
 
 @app.route('/piechartdata', methods=['GET'])
 def piechart_data():
-    piechart_data = analyzer.piechart_data(100, -1, -1)
+    piechart_data = analyzer.piechart_data(100, 1, analyzer.max_block_number())
     return jsonify(piechart_data)
 
 @app.route('/richestwallets', methods=['GET'])

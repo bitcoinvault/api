@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rpc import get_hashrate
 import datetime
 import db
@@ -48,16 +49,16 @@ class BlockchainAnalyzer:
 
     def richest_wallets(self):
         addresses = self.__addresses.order_by('-balance').limit(10)
-        total_coin_supply = self.total_coin_supply()
+        total_coin_supply = Decimal(self.total_coin_supply())
         wallets = []
         for address in addresses:
-            wallets.append({'address':address.hash, 'amount':address.balance, 
-                            'percentage_of_total':round(address.balance/total_coin_supply*100,2)})
+            wallets.append({'address':address.hash, 'amount':float(address.balance), 
+                            'percentage_of_total':float(round(address.balance/total_coin_supply*100,2))})
         return wallets
             
     def non_empty_wallets_number(self):
         pipeline = db_queries.get_nonempty_wallets_number_query()
-        return db.execute_query(pipeline, db.get_addresses())
+        return db.execute_query(pipeline, db.get_addresses())[0]['count']
     
     def max_block_number(self):
         pipeline = db_queries.get_highest_block_number_in_db_query()

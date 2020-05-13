@@ -1,7 +1,7 @@
 from mongoengine import Document, EmbeddedDocument
 from mongoengine.fields import StringField, IntField, ListField, FloatField,\
-    EmbeddedDocumentListField, EmbeddedDocumentField
-
+    EmbeddedDocumentListField, EmbeddedDocumentField, DecimalField
+    
 class RequestCache(Document):
     type = StringField(required=True)
     params = ListField()
@@ -17,7 +17,7 @@ class UTXO(Document):
     
 class Address(Document):
     hash = StringField(required=True, primary_key=True)
-    balance = FloatField(required=True)
+    balance = DecimalField(required=True, precision=8)
     txs = ListField()
     insert_time = FloatField(required=True)
     update_time = FloatField(required=True)

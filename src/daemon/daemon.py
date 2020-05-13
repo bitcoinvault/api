@@ -2,6 +2,7 @@ from blockchain_analyzer import BlockchainAnalyzer
 from db import db_host, db_name, drop_db, execute_query, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
 from db_queries import get_highest_block_number_in_db_query
 from db_utils import create_address
+from decimal import Decimal
 from mongoengine import connect
 from rpc import get_block, get_block_count
 import sys, time
@@ -37,24 +38,28 @@ def period_to_block_range_and_interval(period):
 
         
 def update_addresses(new_utxos, del_utxos):
-    addresses = {}
-    for db_utxo in new_utxos.values():
-        txid = db_utxo.id[:-1]
+    def _update_balance(db_utxo, addresses, new_utxo=True):
         addr = db_utxo.address
-        amount = db_utxo.value
+        amount = Decimal(db_utxo.value)
         if addr not in addresses:
             addresses[addr] = get_address(addr)
-        addresses[addr].balance += amount
         
+        if new_utxo:
+            addresses[addr].balance += amount
+        else:
+            addresses[addr].balance -= amount
+            
+    addresses = {}
+    for db_utxo in new_utxos.values():
+        _update_balance(db_utxo, addresses)
+        
+        txid = db_utxo.id[:-1]
+        addr = db_utxo.address
         if txid not in addresses[addr].txs:
             addresses[addr].txs.append(txid)
             
     for db_utxo in del_utxos.values():
-        txid = db_utxo.id[:-1]
-        addr = db_utxo.address
-        amount = db_utxo.value
-        if addr in addresses:
-            addresses[addr].balance -= amount
+        _update_balance(db_utxo, addresses, False)
             
     for address in addresses.values():
         insert_address(address)
@@ -69,7 +74,7 @@ def update_blockchain():
         analyzer.set_blockchain(get_blockchain())
         analyzer.set_addresses(get_addresses())
         analyzer.set_utxos(get_utxos())
-        analyzer.piechart_data(100, -1, -1)
+        analyzer.piechart_data(100, 1, analyzer.max_block_number())
         periods = ['week', 'month', 'all']
         for period in periods:
             interval, lower_height, upper_height = period_to_block_range_and_interval(period)
