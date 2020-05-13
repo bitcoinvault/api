@@ -11,6 +11,11 @@ def get_nonempty_wallets_number_query():
                 '_id' : 'null',
                 'count' : { '$sum' : 1}
             }
+        },
+        { '$project' : {
+                '_id' : 0,
+                'count' : 1
+            }
         }
     ]
     return pipeline
