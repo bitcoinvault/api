@@ -35,8 +35,10 @@ def get_highest_block_number_in_db_query():
 
 def get_blocks_in_range_query(lower_height, upper_height, projection):
     pipeline = [
-        { '$match' : { 'height' : {'$gte' : lower_height}}},
-        { '$match' : { 'height' : {'$lte' : upper_height}}},
+        { '$match' : { 'height' : {'$gte' : lower_height}}
+        },
+        { '$match' : { 'height' : {'$lte' : upper_height}}
+        },
         { '$sort': {'height' : 1}
         },
         { '$project': projection

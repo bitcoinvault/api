@@ -1,12 +1,13 @@
 from datetime import datetime
-from db_utils import create_address, set_insert_or_update_time
+from db_utils import create_address, create_block, create_utxo, set_insert_or_update_time
 from models import Address, Block, RequestCache, UTXO 
 from mongoengine import Document
+from mongoengine.errors import NotUniqueError
 from rpc import get_block, get_block_count
-import db_queries
-import json
+import db_queries, json, logging
+logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
-db_host = 'mongodb://mongo:27017/blockchain'
+db_host = 'mongodb://127.0.0.1:27017/blockchain'
 db_name = 'blockchain'
 
 def get_blockchain():
@@ -25,7 +26,10 @@ def get_cache():
     return RequestCache.objects()
 
 def get_highest_block_number_in_db():
-    return get_blockchain().order_by('-height').limit(1).first().height
+    try:
+        return get_blockchain().order_by('-height').limit(1).first().height
+    except:
+        return -1
   
 def drop_db():
     Block.drop_collection()
@@ -37,12 +41,15 @@ def insert_address(address):
     query_set = Address.objects(hash=address.hash)
     if not query_set:
         set_insert_or_update_time(address)
-        address.save(force_insert=True)
-        print('Added address(' + str(address.hash) + ') to database')
+        try:
+            address.save(force_insert=True)
+            logging.debug('Added address(' + str(address.hash) + ') to database')
+        except NotUniqueError as e:
+            logging.warn(e)
     elif query_set[0].to_mongo() != address.to_mongo():
         set_insert_or_update_time(address, False)
         query_set.update(balance=address.balance, txs=address.txs, update_time=address.update_time)
-        print('Updated address(' + str(address.hash) + ') in database')
+        logging.debug('Updated address(' + str(address.hash) + ') in database')
          
 def insert_block(block, new_utxos, del_utxos):
     def _parse_inputs(txid, vin, utxo, new_utxo, del_utxo):
@@ -59,19 +66,9 @@ def insert_block(block, new_utxos, del_utxos):
                 else:
                     del_utxo[db_utxo.id] = db_utxo
                 db_utxo.delete()
-                print('Deleted utxo: ' + db_utxo.to_json())
-            except:
-                exception_string = "Invalid input. txid: " + str(txid) + ", vin_txid: " + str(
-                    in_txid) + ", vout: " + str(in_vout)
-                raise BaseException(exception_string)
-            
-    def _create_utxo(tx_key, addr, amount):
-        json_utxo = json.dumps({'id':tx_key, 'address':addr, 'value':amount})
-        return UTXO.from_json(json_utxo)
-    
-    def _create_block(block):
-        json_block = json.dumps(block)
-        return Block.from_json(json_block)
+                logging.debug('Deleted utxo: ' + db_utxo.to_json())
+            except Exception as e:
+                logging.warn(e)
             
     def _parse_outputs(txid, vout, utxo, new_utxo, del_utxo):
         for out in vout:
@@ -85,12 +82,15 @@ def insert_block(block, new_utxos, del_utxos):
             out_n = out.n
             out_addr = out_addresses[0]
             tx_key = txid + str(out_n)
-            db_utxo = _create_utxo(tx_key, out_addr, out.value)
+            db_utxo = create_utxo(tx_key, out_addr, out.value)
             if not utxo(id=db_utxo.id):
                 set_insert_or_update_time(db_utxo)
-                db_utxo.save(force_insert=True)
-                new_utxo[db_utxo.id] = db_utxo
-                print('Added utxo: ' + db_utxo.to_json())
+                try:
+                    db_utxo.save(force_insert=True)
+                    new_utxo[db_utxo.id] = db_utxo
+                    logging.debug('Added utxo: ' + db_utxo.to_json())
+                except NotUniqueError as e:
+                    logging.warn(e)
             if not get_address(out_addr):
                 address = create_address(out_addr, 0)
                 insert_address(address)
@@ -104,11 +104,14 @@ def insert_block(block, new_utxos, del_utxos):
     if Block.objects(hash=block['hash']):
         return
     
-    db_block = _create_block(block)
+    db_block = create_block(block)
     _before_insert_block(db_block, new_utxos, del_utxos)
     set_insert_or_update_time(db_block)
-    db_block.save(force_insert=True)
-    print('Added block(' + str(db_block.height) + ') to database')
+    try:
+        db_block.save(force_insert=True)
+        logging.debug('Added block(' + str(db_block.height) + ') to database')
+    except NotUniqueError as e:
+        logging.warn(e)
 
 def execute_query(pipeline, collection, **kwargs):
     def _get_from_cache_if_exists(type, params):
@@ -116,7 +119,7 @@ def execute_query(pipeline, collection, **kwargs):
         results = cache.filter(type=type, params=params)
         
         if results.count() != 1:
-            print('Invalid number of cached results: {0}'.format(results.count()))
+            logging.warn('Invalid number of cached results: {0}'.format(results.count()))
             return None
         results.first().update(last_accessed=get_highest_block_number_in_db())
         return results.first().result
@@ -130,6 +133,11 @@ def execute_query(pipeline, collection, **kwargs):
         result = list(collection.aggregate(*pipeline))
         _cache_request_result(type, params, result)
         return result
+    
+    if not collection or collection == None:
+        if 'default' in kwargs:
+            return kwargs['default']
+        raise Exception('execute_query failed: performed on empty collection without default value specified')
     
     if 'type' not in kwargs or 'params' not in kwargs:
         return list(collection.aggregate(*pipeline))

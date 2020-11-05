@@ -1,5 +1,5 @@
 FROM ubuntu:18.04
-
+RUN ls
 RUN apt-get update && \
     apt-get -y install --no-install-recommends --no-install-suggests \
     build-essential \
@@ -15,10 +15,10 @@ RUN apt-get update && \
 RUN apt-get -y install automake libtool
 
 WORKDIR /source
-RUN curl -L -k -f  https://github.com/bitcoinvault/bitcoinvault/archive/master.zip -o master.zip
+RUN curl -L -k -f  https://github.com/bitcoinvault/bitcoinvault/archive/dev.zip -o master.zip
 RUN unzip master.zip
 RUN rm master.zip
-WORKDIR /source/bitcoinvault-master
+WORKDIR /source/bitcoinvault-dev
 RUN env CFLAGS=-O2 CXXFLAGS=-O2 \
     ./autogen.sh
 RUN ./configure --disable-bench --disable-tests --disable-wallet --with-gui=no

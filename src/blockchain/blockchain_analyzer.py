@@ -1,13 +1,10 @@
 from decimal import Decimal
 from rpc import get_hashrate
-import datetime
-import db
-import db_queries
-import time
+import datetime, db, db_queries, logging, time
 
 
 class BlockchainAnalyzer:
-    def __init__(self, blockchain=None, addresses=None, utxos=None):
+    def __init__(self, blockchain=[], addresses=[], utxos=[]):
         self.__blockchain = blockchain
         self.__addresses = addresses
         self.__utxos = utxos
@@ -58,8 +55,20 @@ class BlockchainAnalyzer:
             
     def non_empty_wallets_number(self):
         pipeline = db_queries.get_nonempty_wallets_number_query()
-        return db.execute_query(pipeline, db.get_addresses())[0]['count']
+        return db.execute_query(pipeline, db.get_addresses(), default=[{'count':0}])[0]['count']
     
     def max_block_number(self):
         pipeline = db_queries.get_highest_block_number_in_db_query()
-        return db.execute_query(pipeline, self.__blockchain)[0]['height']
+        return db.execute_query(pipeline, self.__blockchain, default=[{'height':-1}])[0]['height']
+    
+    def check_chain(self, depth=20):
+        chain = self.__blockchain.order_by('-height').limit(depth)
+        
+        for idx in range(len(chain) - 1):
+            block = chain[idx]
+            prev_block = chain[idx + 1]
+            
+            if block['previousblockhash'] != prev_block['hash']:
+                return False
+        
+        return True
