@@ -140,10 +140,10 @@ def execute_query(pipeline, collection, **kwargs):
             return kwargs['default']
         raise Exception('execute_query failed: performed on empty collection without default value specified')
     
-    if 'type' not in kwargs or 'params' not in kwargs:
-        return list(collection.aggregate(*pipeline))
-    
     try:
+        if 'type' not in kwargs or 'params' not in kwargs:
+            return list(collection.aggregate(*pipeline))
+    
         result = _get_from_cache_if_exists(kwargs['type'], kwargs['params'])
         if result:
             return result
