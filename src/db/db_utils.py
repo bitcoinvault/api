@@ -37,6 +37,8 @@ def create_block(rpc_block):
         return script
     
     rpc_block = strip_block(rpc_block)
+    if 'atx' not in rpc_block:
+        rpc_block['atx'] = []
     
     for tx in rpc_block['tx']:
         tx = strip_tx(tx)
