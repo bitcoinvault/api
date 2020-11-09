@@ -22,8 +22,7 @@ EXPOSE 27017
 EXPOSE 28017
 
 WORKDIR /app
-COPY requirements.txt /app
-RUN pip3 install -r requirements.txt
 COPY . /app
+RUN pip3 install -r requirements.txt
 CMD ["/usr/bin/supervisord"]
 
