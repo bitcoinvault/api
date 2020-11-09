@@ -30,19 +30,19 @@ class BlockchainAnalyzer:
         pipeline = db_queries.get_blocks_coinbase_addresses_count_query(interval, lower_height, upper_height)
         params = (interval, lower_height, upper_height)
         type = 'piechartdata'
-        return db.execute_query(pipeline, self.__blockchain, type=type, params=params)
+        return db.execute_query(pipeline, self.__blockchain, type=type, params=params, default=['Not enough data'])
     
     def mining_difficulty(self, interval, lower_height, upper_height):
         pipeline = db_queries.get_blocks_average_difficulty_query(interval, lower_height, upper_height)
         params = (interval, lower_height, upper_height)
         type = 'miningdifficulty'
-        return db.execute_query(pipeline, self.__blockchain, type=type, params=params)
+        return db.execute_query(pipeline, self.__blockchain, type=type, params=params, default=['Not enough data'])
     
     def transaction_volume(self, interval, lower_height, upper_height):
         pipeline = db_queries.get_transactions_average_volume_query(interval, lower_height, upper_height)
         params = (interval, lower_height, upper_height)
         type = 'transactionvolume'
-        return db.execute_query(pipeline, self.__blockchain, type=type, params=params)
+        return db.execute_query(pipeline, self.__blockchain, type=type, params=params, default=['Not enough data'])
 
     def richest_wallets(self):
         addresses = self.__addresses.order_by('-balance').limit(20)

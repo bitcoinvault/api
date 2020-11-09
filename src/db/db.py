@@ -3,6 +3,7 @@ from db_utils import create_address, create_block, create_utxo, set_insert_or_up
 from models import Address, Block, RequestCache, UTXO 
 from mongoengine import Document
 from mongoengine.errors import NotUniqueError
+from pymongo.errors import OperationFailure
 from rpc import get_block, get_block_count
 import db_queries, json, logging
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
@@ -142,7 +143,12 @@ def execute_query(pipeline, collection, **kwargs):
     if 'type' not in kwargs or 'params' not in kwargs:
         return list(collection.aggregate(*pipeline))
     
-    result = _get_from_cache_if_exists(kwargs['type'], kwargs['params'])
-    if result:
-        return result
-    return _cache_and_return_query_result(kwargs['type'], kwargs['params'], pipeline, collection)
+    try:
+        result = _get_from_cache_if_exists(kwargs['type'], kwargs['params'])
+        if result:
+            return result
+        return _cache_and_return_query_result(kwargs['type'], kwargs['params'], pipeline, collection)
+    except OperationFailure as e:
+        if 'default' in kwargs:
+            return kwargs['default']
+        raise
