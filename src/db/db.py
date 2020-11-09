@@ -7,7 +7,7 @@ from rpc import get_block, get_block_count
 import db_queries, json, logging
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
-db_host = 'mongodb://127.0.0.1:27017/blockchain'
+db_host = 'mongodb://mongo:27017/blockchain'
 db_name = 'blockchain'
 
 def get_blockchain():
