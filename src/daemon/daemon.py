@@ -10,7 +10,8 @@ import logging, os, shutil, sys, time
 logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
 analyzer = BlockchainAnalyzer()
-BACKUP_FEATURE_HEIGHT = 57000
+BACKUP_FEATURE_HEIGHT = 57000 # doesnt dump db before that chain height
+BACKUP_INTERVAL = 1000 # ask for db dump every 1000th block
 
 period_block_map = {
     'hour' : 6,
@@ -104,19 +105,18 @@ def backup_db():
     if current_height < BACKUP_FEATURE_HEIGHT:
         return
     
-    if current_height % 1000 == 0: # dump db every 1000th block
-        try:
-            logging.info("Doing backup at height: {}".format(current_height))
-            backup('""', '""', "/var/backups/mongodb/", mongo_backup_directory_path='/tmp/mongo_dump_backup', purge_local=30)
-        except Exception as e:
-            logging.warn(e)
+    try:
+        logging.info("Doing backup at height: {}".format(current_height))
+        backup('""', '""', "/var/backups/mongodb/", mongo_backup_directory_path='/tmp/mongo_dump_backup', purge_local=30)
+    except Exception as e:
+        logging.warn(e)
             
-def check_reorg():
+def check_reorg(chunk_size):
     current_height = analyzer.max_block_number()
     if current_height < BACKUP_FEATURE_HEIGHT:
         return False
     
-    reorg = not analyzer.check_chain()
+    reorg = not analyzer.check_chain(chunk_size)
     if reorg:
         restore_db(True)
         
@@ -133,12 +133,15 @@ def update_blockchain():
     
     start_block_number = analyzer.max_block_number() + 1
     end_block_number = get_block_count() + 1
+    chunk_size = end_block_number - start_block_number
     new_utxos = {}
     del_utxos = {}
+    backup = False
     
     try:
         for idx in range(start_block_number, end_block_number):
             logging.debug("Processing block = {}".format(idx))
+            backup = backup or idx % BACKUP_INTERVAL == 0
             
             block = get_block(idx)
             n_utxos = {}
@@ -149,10 +152,13 @@ def update_blockchain():
             del_utxos = {**del_utxos, **d_utxos}
             update_analyzer()
             
-            if check_reorg():
-                return
-            backup_db()
+        if start_block_number > 0 and check_reorg(chunk_size):
+            return
+        
         update_addresses(new_utxos, del_utxos)
+        
+        if backup:
+            backup_db()
     except Exception as e:
         logging.error(e)
         raise

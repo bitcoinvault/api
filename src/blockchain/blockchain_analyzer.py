@@ -2,6 +2,7 @@ from decimal import Decimal
 from rpc import get_hashrate
 import datetime, db, db_queries, logging, time
 
+REORG_DEPTH = 50
 
 class BlockchainAnalyzer:
     def __init__(self, blockchain=[], addresses=[], utxos=[]):
@@ -61,8 +62,8 @@ class BlockchainAnalyzer:
         pipeline = db_queries.get_highest_block_number_in_db_query()
         return db.execute_query(pipeline, self.__blockchain, default=[{'height':-1}])[0]['height']
     
-    def check_chain(self, depth=20):
-        chain = self.__blockchain.order_by('-height').limit(depth)
+    def check_chain(self, chunk_size):
+        chain = self.__blockchain.order_by('-height').limit(chunk_size + REORG_DEPTH)
         
         for idx in range(len(chain) - 1):
             block = chain[idx]
