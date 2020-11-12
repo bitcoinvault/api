@@ -11,14 +11,13 @@ RUN apt-get update && \
     pkg-config \
     git \
     unzip \
-    autoconf
+    autoconf \
+    ca-certificates
 RUN apt-get -y install automake libtool
 
 WORKDIR /source
-RUN curl -L -k -f  https://github.com/bitcoinvault/bitcoinvault/archive/master.zip -o master.zip
-RUN unzip master.zip
-RUN rm master.zip
-WORKDIR /source/bitcoinvault-master
+RUN git clone https://github.com/bitcoinvault/bitcoinvault.git
+WORKDIR /source/bitcoinvault
 RUN env CFLAGS=-O2 CXXFLAGS=-O2 \
     ./autogen.sh
 RUN ./configure --disable-bench --disable-tests --disable-wallet --with-gui=no
