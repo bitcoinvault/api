@@ -1,13 +1,15 @@
 version: "3"
 services:
-  daemon:
-    build: ./daemon
-    container_name: daemon
-    restart: always
-    depends_on:
-      - mongo
-      - bitcoind
-
+  bitcoind:
+    build: ./bitcoind
+    volumes:
+      - /s/bitcoind/blocks:/bitcoin/blocks/
+      - /s/bitcoind/chainstate:/bitcoin/chainstate/
+    ports:
+      - "8333:8333"
+    expose:
+      - "8332"
+      
   mongo:
     build: ./mongo
     container_name: mongo
@@ -19,6 +21,7 @@ services:
       - 28017
     volumes:
       - "/var/lib/mongodb:/data/db"
+      - "/var/backups/mongodb:/var/backups/mongodb"
 
   flask:
     build: ./flask
@@ -26,8 +29,6 @@ services:
     restart: always
     depends_on:
       - mongo
-      - nginx
-      - daemon
     expose:
       - 5000
  
@@ -37,14 +38,4 @@ services:
     restart: always
     ports:
       - "80:8080"
-
-  bitcoind:
-    build: ./bitcoind
-    volumes:
-      - /s/bitcoind/blocks:/bitcoin/blocks/
-      - /s/bitcoind/chainstate:/bitcoin/chainstate/
-    ports:
-      - "8333:8333"
-    expose:
-      - "8332"
 
