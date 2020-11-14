@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctim
 analyzer = BlockchainAnalyzer()
 BACKUP_FEATURE_HEIGHT = 57000 # doesnt dump db before that chain height
 BACKUP_INTERVAL = 1000 # ask for db dump every 1000th block
+MAX_CHUNK_SIZE = 2000
 
 period_block_map = {
     'hour' : 6,
@@ -134,28 +135,34 @@ def update_blockchain():
     start_block_number = analyzer.max_block_number() + 1
     end_block_number = get_block_count() + 1
     chunk_size = end_block_number - start_block_number
-    new_utxos = {}
-    del_utxos = {}
+    iterations = chunk_size // MAX_CHUNK_SIZE + 1
     backup = False
     
     try:
-        for idx in range(start_block_number, end_block_number):
-            logging.debug("Processing block = {}".format(idx))
-            backup = backup or idx % BACKUP_INTERVAL == 0
+        for i in range(iterations):
+            logging.debug("Processing chunk: {}/{}".format(i + 1, iterations))
+            new_utxos = {}
+            del_utxos = {}
+            new_start_block_number = start_block_number + i * MAX_CHUNK_SIZE
+            new_end_block_number = min(new_start_block_number + MAX_CHUNK_SIZE, end_block_number)
             
-            block = get_block(idx)
-            n_utxos = {}
-            d_utxos = {}
+            for idx in range(new_start_block_number, new_end_block_number):
+                logging.debug("Processing block = {}".format(idx))
+                backup = backup or idx % BACKUP_INTERVAL == 0
+                
+                block = get_block(idx)
+                n_utxos = {}
+                d_utxos = {}
+                
+                insert_block(block, n_utxos, d_utxos)
+                new_utxos = {**new_utxos, **n_utxos}
+                del_utxos = {**del_utxos, **d_utxos}
+                update_analyzer()
+                
+            if start_block_number > 0 and check_reorg(min(chunk_size, MAX_CHUNK_SIZE)):
+                return
             
-            insert_block(block, n_utxos, d_utxos)
-            new_utxos = {**new_utxos, **n_utxos}
-            del_utxos = {**del_utxos, **d_utxos}
-            update_analyzer()
-            
-        if start_block_number > 0 and check_reorg(chunk_size):
-            return
-        
-        update_addresses(new_utxos, del_utxos)
+            update_addresses(new_utxos, del_utxos)
         
         if backup:
             backup_db()
