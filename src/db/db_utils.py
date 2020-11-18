@@ -17,7 +17,7 @@ def create_address(addr, amount):
 def create_block(rpc_block):
     def strip_block(block):
         for key in ('confirmations', 'nonce', 'size', 'bits', 'strippedsize', 'versionHex', 'chainwork', 'merkleroot', 'alertmerkleroot',
-                    'mediantime', 'version', 'weight', 'nTx'):
+                    'mediantime', 'version', 'weight', 'nTx', 'auxheader'):
             block.pop(key, None)
         return block
 
