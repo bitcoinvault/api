@@ -1,5 +1,5 @@
 from blockchain_analyzer import BlockchainAnalyzer
-from db import db_host, db_name, drop_db, execute_query, get_address, get_addresses, get_blockchain, get_highest_block_number_in_db, \
+from db.db import get_db_uri db_host, db_name, drop_db, execute_query, get_address, get_addresses, get_blockchain, get_highest_block_number_in_db, \
                get_utxos, insert_address, insert_block
 from db_utils import create_address
 from decimal import Decimal
@@ -179,15 +179,15 @@ def init_cleanup():
 
 def try_to_connect():
     try:
-        connect(db_name, host=db_host)
+        connect(host=get_db_uri())
     except Exception as e:
         logging.error(e)
         raise
     
 if __name__ == '__main__':
-    init_cleanup()
+#    init_cleanup()
     try_to_connect()
-    restore_db()
+#    restore_db()
     while True:
         update_blockchain()
         time.sleep(5)

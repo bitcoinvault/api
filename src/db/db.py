@@ -5,11 +5,25 @@ from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from pymongo.errors import OperationFailure
 from rpc import get_block, get_block_count
-import db_queries, json, logging
+import db_queries, json, logging, os
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
-db_host = 'mongodb://mongo:27017/blockchain'
-db_name = 'blockchain'
+db_prot = os.getenv('DB_PROTOCOL', 'mongodb')
+db_name = os.getenv('DB_NAME', 'blockchain')
+db_host = os.getenv('DB_URL', 'mongo')
+db_port = os.getenv('DB_PORT', '27017')
+db_user = os.getenv('DB_USERNAME', '')
+db_pass = os.getenv('DB_PASSWORD', '')
+db_para = os.getenv('DB_URI_PARAMS', '')
+
+def get_db_uri():
+    uri = db_prot + '://'
+    if db_user != '' and db_pass != '':
+        uri += db_user + ':' + db_pass + '@'
+    uri += db_host + ':' + db_port + '/' + db_name
+    if db_para != '':
+        uri += db_para
+    return uri
 
 def get_blockchain():
     return Block.objects()
