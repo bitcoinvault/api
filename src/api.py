@@ -1,11 +1,11 @@
 from blockchain_analyzer import BlockchainAnalyzer
-from db import db_host, drop_db, get_addresses, get_blockchain, get_utxos
+from db.db import db_host, drop_db, get_addresses, get_blockchain, get_utxos, get_db_uri
 from flask import Flask, jsonify, request
 from flask_mongoengine import MongoEngine
 
 app = Flask(__name__)
 app.config['DEBUG'] = False
-app.config['MONGODB_SETTINGS'] = {'host':db_host, 'connect':False}
+app.config['MONGODB_SETTINGS'] = {'host':get_db_uri(), 'connect':False}
 db = MongoEngine()
 db.init_app(app)
 analyzer = BlockchainAnalyzer()
