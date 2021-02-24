@@ -77,6 +77,3 @@ RPC server parameters are provided in `rpc.py` file:
 ```python
 url = "http://user:password@bitcoind:8332"
 ```
-
-# Build and deployment using docker-compose
-For convenience `run.sh` script was added. It does all necessary steps for building and setting whole environment.
