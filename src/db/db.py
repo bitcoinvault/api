@@ -1,11 +1,8 @@
-from datetime import datetime
 from db_utils import create_address, create_block, create_utxo, set_insert_or_update_time
 from models import Address, Block, RequestCache, UTXO 
-from mongoengine import Document
 from mongoengine.errors import NotUniqueError
 from pymongo.errors import OperationFailure
-from rpc import get_block, get_block_count
-import db_queries, json, logging, os
+import json, logging, os
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
 db_prot = os.getenv('DB_PROTOCOL', 'mongodb')
@@ -46,12 +43,6 @@ def get_highest_block_number_in_db():
     except:
         return -1
   
-def drop_db():
-    Block.drop_collection()
-    Address.drop_collection()
-    UTXO.drop_collection()
-    RequestCache.drop_collection()
-
 def insert_address(address):
     query_set = Address.objects(hash=address.hash)
     if not query_set:

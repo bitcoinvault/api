@@ -1,17 +1,14 @@
-from blockchain_analyzer import BlockchainAnalyzer
-from db.db import get_db_uri db_host, db_name, drop_db, execute_query, get_address, get_addresses, get_blockchain, get_highest_block_number_in_db, \
-               get_utxos, insert_address, insert_block
-from db_utils import create_address
+from blockchain.blockchain_analyzer import BlockchainAnalyzer
+from db.db import get_db_uri, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
 from decimal import Decimal
-from mongobackup import backup, restore
 from mongoengine import connect
-from rpc import get_block, get_block_count
-import logging, os, shutil, sys, time
+from blockchain.rpc import get_block, get_block_count
+import logging
+from time import sleep
+
 logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s', datefmt='%d-%m-%Y %H:%M:%S')
 
 analyzer = BlockchainAnalyzer()
-BACKUP_FEATURE_HEIGHT = 57000 # doesnt dump db before that chain height
-BACKUP_INTERVAL = 1000 # ask for db dump every 1000th block
 MAX_CHUNK_SIZE = 2000
 
 period_block_map = {
@@ -74,44 +71,6 @@ def update_analyzer():
     analyzer.set_addresses(get_addresses())
     analyzer.set_utxos(get_utxos())
         
-def restore_db(reorg=False):
-    def _last_backup():
-        filename = os.popen('ls -ltr /var/backups/mongodb | tail -n 1 | egrep "backup.*" -o').readline()
-        if filename:
-            return '/var/backups/mongodb/' + filename.replace('\n', '')
-        return None
-    
-    try:
-        file_to_restore = _last_backup()
-        
-        if file_to_restore:
-            drop_db()
-            logging.debug("File to restore: " + file_to_restore)
-            restore('""', '""', file_to_restore, backup_directory_output_path='/tmp/mongo_dump_restore')
-            logging.info("DB restored to height: {}".format(get_highest_block_number_in_db()))
-        elif not reorg:
-            logging.warn("No backup to restore")
-            backup('""', '""', "/var/backups/mongodb/", mongo_backup_directory_path='/tmp/mongo_dump_backup', purge_local=30)
-            logging.info("Initial database state dumped at height: {}".format(get_highest_block_number_in_db()))
-        else:
-            logging.warn("No backup to restore and chain reorg occured. Need to fill DB from scratch.")
-            drop_db()
-    except Exception as e:
-        logging.warn(e)
-    
-    update_analyzer()
-
-def backup_db():
-    current_height = analyzer.max_block_number()
-    if current_height < BACKUP_FEATURE_HEIGHT:
-        return
-    
-    try:
-        logging.info("Doing backup at height: {}".format(current_height))
-        backup('""', '""', "/var/backups/mongodb/", mongo_backup_directory_path='/tmp/mongo_dump_backup', purge_local=30)
-    except Exception as e:
-        logging.warn(e)
-            
 def check_reorg(chunk_size):
     current_height = analyzer.max_block_number()
     if current_height < BACKUP_FEATURE_HEIGHT:
@@ -136,8 +95,7 @@ def update_blockchain():
     end_block_number = get_block_count() + 1
     chunk_size = end_block_number - start_block_number
     iterations = chunk_size // MAX_CHUNK_SIZE + 1
-    backup = False
-    
+
     try:
         for i in range(iterations):
             logging.debug("Processing chunk: {}/{}".format(i + 1, iterations))
@@ -148,8 +106,7 @@ def update_blockchain():
             
             for idx in range(new_start_block_number, new_end_block_number):
                 logging.debug("Processing block = {}".format(idx))
-                backup = backup or idx % BACKUP_INTERVAL == 0
-                
+
                 block = get_block(idx)
                 n_utxos = {}
                 d_utxos = {}
@@ -164,18 +121,12 @@ def update_blockchain():
             
             update_addresses(new_utxos, del_utxos)
         
-        if backup:
-            backup_db()
     except Exception as e:
         logging.error(e)
         raise
     
     if start_block_number != end_block_number:
         _reexecute_queries()
-
-def init_cleanup():
-    shutil.rmtree('/tmp/mongo_dump_backup', True)
-    shutil.rmtree('/tmp/mongo_dump_restore', True)
 
 def try_to_connect():
     try:
@@ -185,9 +136,8 @@ def try_to_connect():
         raise
     
 if __name__ == '__main__':
-#    init_cleanup()
     try_to_connect()
-#    restore_db()
+    update_analyzer()
     while True:
         update_blockchain()
-        time.sleep(5)
+        sleep(5)

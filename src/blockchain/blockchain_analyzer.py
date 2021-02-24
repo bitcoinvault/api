@@ -1,6 +1,6 @@
 from decimal import Decimal
 from rpc import get_hashrate
-import datetime, db, db_queries, logging, time
+from db import db_queries
 
 REORG_DEPTH = 50
 

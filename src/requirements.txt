@@ -6,6 +6,5 @@ Jinja2>=2.10.1
 MarkupSafe>=1.0
 gunicorn==20.0.4
 Werkzeug>=0.15.3
-mongobackup
 mongoengine
 requests
