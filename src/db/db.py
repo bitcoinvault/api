@@ -5,8 +5,8 @@ import os
 from mongoengine.errors import NotUniqueError
 from pymongo.errors import OperationFailure
 
-from db_utils import create_address, create_block, create_utxo, set_insert_or_update_time
-from models import Address, Block, RequestCache, UTXO
+from db.db_utils import create_address, create_block, create_utxo, set_insert_or_update_time
+from db.models import Address, Block, RequestCache, UTXO
 
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%d-%m-%Y %H:%M:%S')

@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime
 
-from models import Address, Block, UTXO
+from db.models import Address, Block, UTXO
 
 logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
                     datefmt='%d-%m-%Y %H:%M:%S')
