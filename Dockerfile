@@ -8,9 +8,9 @@ ENV FLASK_DEBUG=0
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-COPY src .
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY src .
 
 # run daemon
 CMD [ "python3", "daemon.py" ]
