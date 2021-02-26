@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.0 (2021-02-26)
+### Feature
+* **docker:** Update version of Python to 3.8 ([`0febd0b`](https://github.com/bitcoinvault/api/commit/0febd0b0cb3c76b35145b4043db3557d3b51387d))
+
 ## v0.0.2 (2021-02-24)
 ### Fix
 * **ci:** Add PAT to be able to create new release ([`3d6baec`](https://github.com/bitcoinvault/api/commit/3d6baecc49248e914fcb4c631c2dc3c51f3386a7))
