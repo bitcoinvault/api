@@ -86,7 +86,12 @@ def piechart_data():
 
 @app.route('/richestwallets', methods=['GET'])
 def richest_wallets():
-    wallets = analyzer.richest_wallets()
+    limit = request.args.get('limit', default='20')
+    try:
+        limit = int(limit, 10)
+    except (ValueError, TypeError):
+        limit = 20
+    wallets = analyzer.richest_wallets(limit)
     return jsonify(wallets)
 
 
