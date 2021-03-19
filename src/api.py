@@ -88,7 +88,7 @@ def piechart_data():
 def richest_wallets():
     limit = request.args.get('limit', default='20')
     try:
-        limit = int(limit, 10)
+        limit = int(limit)
     except (ValueError, TypeError):
         limit = 20
     wallets = analyzer.richest_wallets(limit)
