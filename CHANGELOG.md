@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.1 (2021-03-19)
+### Fix
+* **richestwallets:** Fix possibility to return more than 20 of richest wallets ([#11](https://github.com/bitcoinvault/api/issues/11)) ([`8482a14`](https://github.com/bitcoinvault/api/commit/8482a146321f405a10b05fb923433f8be8873004))
+
 ## v0.1.0 (2021-02-26)
 ### Feature
 * **docker:** Update version of Python to 3.8 ([`0febd0b`](https://github.com/bitcoinvault/api/commit/0febd0b0cb3c76b35145b4043db3557d3b51387d))
