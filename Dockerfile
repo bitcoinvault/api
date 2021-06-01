@@ -1,5 +1,7 @@
-FROM python:3.8-buster
+FROM python:3.8-alpine
 WORKDIR /app
+
+RUN apk upgrade -U
 
 ENV FLASK_APP=api.py
 ENV FLASK_RUN_HOST=0.0.0.0
