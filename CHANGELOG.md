@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.2 (2021-06-01)
+### Performance
+* **dockerfile:** Use alpine image as base ([`39814b5`](https://github.com/bitcoinvault/api/commit/39814b5c5a87c28c196c2bd88b07313f819388d8))
+
 ## v0.1.1 (2021-03-19)
 ### Fix
 * **richestwallets:** Fix possibility to return more than 20 of richest wallets ([#11](https://github.com/bitcoinvault/api/issues/11)) ([`8482a14`](https://github.com/bitcoinvault/api/commit/8482a146321f405a10b05fb923433f8be8873004))
