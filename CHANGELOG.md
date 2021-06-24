@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.3 (2021-06-24)
+### Fix
+* **tx:** Add missing fields for Tx model ([`4e58ff6`](https://github.com/bitcoinvault/api/commit/4e58ff6a86960bc08a78a3e8f9f0edef570355d7))
+
 ## v0.1.2 (2021-06-01)
 ### Performance
 * **dockerfile:** Use alpine image as base ([`39814b5`](https://github.com/bitcoinvault/api/commit/39814b5c5a87c28c196c2bd88b07313f819388d8))
