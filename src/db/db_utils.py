@@ -4,9 +4,17 @@ from datetime import datetime
 
 from db.models import Address, Block, UTXO
 
-logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
-                    datefmt='%d-%m-%Y %H:%M:%S')
+# logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
+#                     datefmt='%d-%m-%Y %H:%M:%S')
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    datefmt='%d-%m-%Y %H:%M:%S',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 def set_insert_or_update_time(db_object, ins=True, upd=True):
     time = datetime.now().timestamp()
