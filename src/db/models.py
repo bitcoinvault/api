@@ -45,6 +45,8 @@ class Vin(EmbeddedDocument):
 class Tx(EmbeddedDocument):
     txid = StringField(required=True, primary_key=True)
     hash = StringField(required=True)
+    type = StringField()
+    status = StringField()
     vin = EmbeddedDocumentListField(Vin)
     vout = EmbeddedDocumentListField(Vout)
 
