@@ -8,8 +8,17 @@ from blockchain.blockchain_analyzer import BlockchainAnalyzer
 from blockchain.rpc import get_block, get_block_count
 from db.db import get_db_uri, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
 
-logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s',
-                    datefmt='%d-%m-%Y %H:%M:%S')
+# logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s',
+#                     datefmt='%d-%m-%Y %H:%M:%S')
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    datefmt='%d-%m-%Y %H:%M:%S',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 analyzer = BlockchainAnalyzer()
 MAX_CHUNK_SIZE = 2000

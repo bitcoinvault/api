@@ -8,8 +8,17 @@ from pymongo.errors import OperationFailure
 from db.db_utils import create_address, create_block, create_utxo, set_insert_or_update_time
 from db.models import Address, Block, RequestCache, UTXO
 
-logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
-                    datefmt='%d-%m-%Y %H:%M:%S')
+# logging.basicConfig(level=logging.DEBUG, filename="blockchain.log", format='%(asctime)s %(levelname)-8s %(message)s',
+#                     datefmt='%d-%m-%Y %H:%M:%S')
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    datefmt='%d-%m-%Y %H:%M:%S',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 db_prot = os.getenv('DB_PROTOCOL', 'mongodb')
 db_name = os.getenv('DB_NAME', 'blockchain')
