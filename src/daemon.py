@@ -77,11 +77,6 @@ def update_addresses(new_utxos, del_utxos):
     for db_utxo in new_utxos.values():
         _update_balance(db_utxo, addresses)
 
-        txid = db_utxo.id[:-1]
-        addr = db_utxo.address
-        if txid not in addresses[addr].txs:
-            addresses[addr].txs.append(txid)
-
     for db_utxo in del_utxos.values():
         _update_balance(db_utxo, addresses, False)
 
