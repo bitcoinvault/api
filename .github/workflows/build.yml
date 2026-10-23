@@ -2,28 +2,104 @@ name: "Docker Build & Test"
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: api-cache-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_PYTHON: "3.8"
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  TEST_DATABASE: cache_fix_http_${{ github.run_id }}_${{ github.run_attempt }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SOURCE_SHA }}
 
-      # In this step, this action saves a list of existing images,
-      # the cache is created without them in the post run.
-      # It also restores the cache if it exists.
-      - uses: satackey/action-docker-layer-caching@v0.0.11
-        # Ignore the failure of a step and avoid terminating the job.
-        continue-on-error: true
+      - name: Build application and test images
+        run: |
+          docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" -t api-candidate .
+          docker run --rm --network none --entrypoint python api-candidate -m pip check
+          docker build --build-arg "PYTHON_VERSION=$TEST_PYTHON" -f tests/Dockerfile -t api-cache-tests .
+          mkdir -p "$RUNNER_TEMP/api-reports"
 
-      - name: Build docker image
-        run: docker build -t bitcoin-vault-api-ci .
+      - name: Start isolated test database
+        run: |
+          docker network create api-cache-ci
+          docker run --detach --rm --name gw-cache-mongo-20261023 --network api-cache-ci mongo:6.0.13 --bind_ip_all --quiet
+
+      - name: Run regression and integration tests
+        run: |
+          docker run --rm --network api-cache-ci \
+            -e TEST_MONGODB_URI=mongodb://gw-cache-mongo-20261023:27017 \
+            -e COVERAGE_FILE=/tmp/cache.coverage \
+            --mount "type=bind,source=$PWD,target=/work,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/api-reports,target=/reports" \
+            api-cache-tests tests -q --tb=short \
+            --junitxml=/reports/junit.xml \
+            --cov=db.query_cache --cov-branch \
+            --cov-report=term-missing --cov-report=xml:/reports/coverage.xml \
+            --cov-fail-under=80
+
+      - name: Smoke test the application image
+        run: |
+          docker run --detach --rm --name gw-cache-rpc-ci --network api-cache-ci \
+            --mount "type=bind,source=$PWD,target=/work,readonly" \
+            --entrypoint python api-cache-tests /work/tests/fake_rpc.py
+          docker run --detach --rm --name gw-api-smoke-ci --network api-cache-ci \
+            -e DB_URL=gw-cache-mongo-20261023 -e "DB_NAME=$TEST_DATABASE" \
+            -e RPC_HOST=gw-cache-rpc-ci api-candidate
+          docker run --rm --network api-cache-ci \
+            -e TEST_MONGODB_URI=mongodb://gw-cache-mongo-20261023:27017 \
+            -e "TEST_DATABASE=$TEST_DATABASE" -e TEST_API_URL=http://gw-api-smoke-ci:5000 \
+            --mount "type=bind,source=$PWD,target=/work,readonly" \
+            --entrypoint python api-cache-tests /work/tests/http_smoke.py
+
+      - name: Package tested candidate
+        run: |
+          docker save api-candidate | gzip > "$RUNNER_TEMP/api-candidate.tar.gz"
+          docker image inspect api-candidate --format '{{.Id}}' > "$RUNNER_TEMP/image-id.txt"
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/source-sha.txt"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/api-reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload tested candidate image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-candidate-${{ env.SOURCE_SHA }}
+          path: |
+            ${{ runner.temp }}/api-candidate.tar.gz
+            ${{ runner.temp }}/image-id.txt
+            ${{ runner.temp }}/source-sha.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove isolated test resources
+        if: always()
+        run: |
+          docker rm -f gw-api-smoke-ci gw-cache-rpc-ci gw-cache-mongo-20261023 >/dev/null 2>&1 || true
+          docker network rm api-cache-ci >/dev/null 2>&1 || true
 

@@ -93,6 +93,16 @@ Test containers were stopped after validation; no background monitoring remains.
 
 ## Proposed rollout, not performed
 
+The PR workflow now builds the candidate, runs the isolated MongoDB tests and
+the HTTP image smoke, and uploads test reports plus a Docker image archive.
+The archive is named for the exact checked-out source SHA and retained for
+seven days. Loading/publishing that archive for staging is a separate approved
+operation. This workflow has read-only repository permissions, receives no AWS
+secrets, and does not push to ECR, invoke Argo CD, or run the release workflow.
+Its shell steps were executed locally; actual GitHub job and artifact status
+must be checked separately after publication. Existing master release behavior
+is unchanged.
+
 1. Review the complete API/daemon patch together. Build from the pinned source
    plus this patch, not from an unrelated newer branch.
 2. Test the paired API and daemon on an isolated non-production database. Cover
