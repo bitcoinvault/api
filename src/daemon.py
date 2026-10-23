@@ -5,8 +5,9 @@ from time import sleep
 from mongoengine import connect
 
 from blockchain.blockchain_analyzer import BlockchainAnalyzer
-from blockchain.rpc import get_block, get_block_count
+from blockchain.rpc import get_block, get_block_count, get_block_hash
 from db.db import get_db_uri, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
+from db import query_cache
 
 # logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s',
 #                     datefmt='%d-%m-%Y %H:%M:%S')
@@ -90,6 +91,14 @@ def update_analyzer():
     analyzer.set_utxos(get_utxos())
 
 
+def _verify_stored_tip(node_height):
+    tip = get_blockchain().only('hash', 'height').order_by('-height').first()
+    if tip is not None and (tip.height > node_height or get_block_hash(tip.height) != tip.hash):
+        query_cache.invalidate()
+        raise RuntimeError('Stored blockchain tip is not canonical; verified recovery required')
+    return tip
+
+
 def update_blockchain():
     def _reexecute_queries():
         analyzer.piechart_data(100, 1, analyzer.max_block_number())
@@ -99,8 +108,15 @@ def update_blockchain():
             analyzer.mining_difficulty(interval, lower_height, upper_height)
             analyzer.transaction_volume(interval, lower_height, upper_height)
 
+    query_cache.assert_no_pending_update()
     start_block_number = analyzer.max_block_number() + 1
     end_block_number = get_block_count() + 1
+    tip = _verify_stored_tip(end_block_number - 1)
+    if start_block_number == end_block_number:
+        return
+
+    generation = None
+    previous_hash = tip.hash if tip is not None else None
     chunk_size = end_block_number - start_block_number
     iterations = chunk_size // MAX_CHUNK_SIZE + 1
 
@@ -116,10 +132,17 @@ def update_blockchain():
                 logging.debug("Processing block = {}".format(idx))
 
                 block = get_block(idx)
+                if (block.get('height') != idx or
+                        (previous_hash is not None and block.get('previousblockhash') != previous_hash)):
+                    query_cache.invalidate()
+                    raise RuntimeError('Fetched block does not extend the canonical chain; verified recovery required')
                 n_utxos = {}
                 d_utxos = {}
 
+                if generation is None:
+                    generation = query_cache.begin_update()
                 insert_block(block, n_utxos, d_utxos)
+                previous_hash = block['hash']
                 new_utxos = {**new_utxos, **n_utxos}
                 del_utxos = {**del_utxos, **d_utxos}
                 update_analyzer()
@@ -130,8 +153,9 @@ def update_blockchain():
         logging.error(e)
         raise
 
-    if start_block_number != end_block_number:
-        _reexecute_queries()
+    _verify_stored_tip(get_block_count())
+    query_cache.complete_update(generation)
+    _reexecute_queries()
 
 
 def try_to_connect():

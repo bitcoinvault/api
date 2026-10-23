@@ -1,5 +1,5 @@
 from mongoengine import Document, EmbeddedDocument
-from mongoengine.fields import StringField, IntField, ListField, FloatField, \
+from mongoengine.fields import StringField, IntField, ListField, FloatField, BooleanField, DateTimeField, \
     EmbeddedDocumentListField, EmbeddedDocumentField, DecimalField
 
 
@@ -8,6 +8,25 @@ class RequestCache(Document):
     params = ListField()
     result = ListField()
     last_accessed = IntField(required=True)
+
+
+class CacheState(Document):
+    id = StringField(primary_key=True)
+    generation = StringField(required=True)
+    ready = BooleanField(default=False)
+
+    meta = {'collection': 'cache_state'}
+
+
+class QueryCacheEntry(Document):
+    id = StringField(primary_key=True)
+    result = ListField(required=True)
+    expires_at = DateTimeField(required=True)
+
+    meta = {
+        'collection': 'query_cache_v2',
+        'indexes': [{'fields': ['expires_at'], 'expireAfterSeconds': 0}],
+    }
 
 
 class UTXO(Document):
