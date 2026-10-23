@@ -11,13 +11,13 @@ import pytest
 URI = os.environ.get('TEST_MONGODB_URI', '')
 PARSED_URI = urlsplit(URI)
 HOST = PARSED_URI.hostname
-if (PARSED_URI.scheme != 'mongodb' or HOST != 'gw-cache-mongo-20261023' or
+if (PARSED_URI.scheme != 'mongodb' or HOST != 'api-cache-test-mongo' or
         PARSED_URI.port not in (None, 27017) or PARSED_URI.path not in ('', '/') or
         PARSED_URI.username is not None or PARSED_URI.password is not None or
         PARSED_URI.query or PARSED_URI.fragment):
     raise pytest.UsageError('TEST_MONGODB_URI must point only to the isolated local test MongoDB')
 
-DATABASE = 'cache_fix_tests_' + uuid.uuid4().hex
+DATABASE = 'api_cache_tests_' + uuid.uuid4().hex
 os.environ['DB_PROTOCOL'] = 'mongodb'
 os.environ['DB_NAME'] = DATABASE
 os.environ['DB_URL'] = HOST

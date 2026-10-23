@@ -12,9 +12,9 @@ def main():
     uri = os.environ['TEST_MONGODB_URI']
     api = os.environ['TEST_API_URL']
     name = os.environ['TEST_DATABASE']
-    if (urlsplit(uri).hostname != 'gw-cache-mongo-20261023' or
-            not urlsplit(api).hostname.startswith('gw-api-smoke-') or
-            not name.startswith('cache_fix_http_')):
+    if (urlsplit(uri).hostname != 'api-cache-test-mongo' or
+            not urlsplit(api).hostname.startswith('api-cache-smoke-') or
+            not name.startswith('api_cache_http_')):
         raise RuntimeError('Smoke tests require disposable local services')
 
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)

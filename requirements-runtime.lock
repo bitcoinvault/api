@@ -1,5 +1,5 @@
-# Versions observed in the deployed image on 2026-10-23.
-# Preserve the runtime for this incident fix; dependency upgrades are separate.
+# Compatibility constraints for the existing Python 3.8 runtime.
+# Dependency upgrades and security remediation are separate work.
 WTForms==3.0.0
 Werkzeug==1.0.1
 urllib3==1.26.7

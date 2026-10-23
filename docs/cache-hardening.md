@@ -1,142 +1,140 @@
-# API cache hardening
+# Query cache and ingestion safety
 
-Base: production image/source `81edd479c0205b0996e8f0318bb34db2326f1e7d`.
-This change is prepared locally. It has not been deployed to production.
+## Behavior
 
-## Scope
+The API stores computed query results in `query_cache_v2` instead of reading or
+appending to the legacy `request_cache` collection. Existing HTTP response
+formats are unchanged.
 
-- Stop consulting or adding to the legacy `request_cache` collection.
-- Store new results in `query_cache_v2`, using the built-in unique `_id` index.
-- Include the database/collection, query type, parameters, pipeline and data
-  generation in the key. BSON encoding preserves order-sensitive pipeline
-  documents such as compound sorts. Empty results are valid cache hits.
-- Expire entries after one hour. The TTL index is created on the new collection,
-  not on the existing large collection. Application reads also check expiry,
-  independently of the asynchronous MongoDB TTL cleanup.
-- Cache total supply and nonempty-address counts without changing JSON shapes.
-- Constrain rebuild dependencies to versions observed in the deployed image.
-  Historical library vulnerabilities are not addressed by this incident fix.
-- Check every ingested block extends the preceding verified hash. Publish a new
-  generation only after the daemon finishes its address updates and checks its
-  stored tip against the node. Cache hits do not write to MongoDB.
-- Leave interrupted updates and detected reorgs fail-closed. This is a safety
-  boundary, not an implementation of automatic blockchain recovery.
+- A cache entry's unique `_id` hashes the database/collection, query type,
+  parameters, BSON-encoded pipeline and completed data generation. BSON encoding
+  preserves field order for compound sorts. Empty results are cacheable.
+- Entries expire after one hour. Reads check expiry immediately; a TTL index
+  removes expired entries asynchronously. Cache hits do not write to MongoDB.
+- Supply and nonempty-address statistics reuse cached aggregations. Concurrent
+  misses may still compute independently; atomic upserts prevent duplicate rows,
+  not duplicate computation.
+- The daemon invalidates the generation before its first write. It publishes a
+  new ready generation only after address updates and canonical-chain checks.
+  Fetched block heights and parent hashes are checked before insertion.
+- An RPC failure before any write preserves the previous ready generation.
+  An interrupted mutation or detected inconsistency requires verified recovery.
+- Cache read/write failures fall back to the underlying query. Ingestion-state
+  write failures propagate rather than silently certifying incomplete data.
 
-The old cache is deliberately left intact for rollback. Deleting it is a separate
-approved maintenance operation. This patch does not change miners or GitOps.
+The legacy cache is not migrated or deleted. Its cleanup is separate maintenance.
 
-## Limitations and operational change
+## Compatibility and limitations
 
-The daemon persists blocks/UTXOs before all address balances have been updated.
-Previously ignored write failures could therefore leave inconsistent statistics.
-Write failures now propagate, and an unfinished `cache_state` marker prevents a
-restart from silently resuming and publishing that data as a completed snapshot.
-A same-height node/stored-tip mismatch also requires verified recovery.
+**Operational change:** the daemon stops on unfinished updates or noncanonical
+data instead of continuing with potentially inconsistent statistics. Accept this
+behavior and establish a recovery procedure before deploying.
 
-Do not deploy without accepting this fail-closed behavior and having an operator
-available to handle an interrupted update. Do not reset the marker merely to make
-the daemon start. Cache safety does not repair a pre-existing inconsistent DB.
-Reads during a normal update preserve the existing uncached behavior; this is
-not transaction-level snapshot isolation for the HTTP API.
+A missing or unready marker makes API queries bypass the cache. This does not
+repair underlying data: reads during an update retain the existing uncached
+behavior, without transaction-level snapshot isolation. Matching the stored tip
+to the node does not prove historical address balances or UTXOs are correct.
 
-Concurrent cold requests can still compute the same result independently; atomic
-upserts prevent duplicate rows, but do not provide a distributed computation lock.
-The legacy data and other uncached queries may still require separate maintenance.
+`requirements-runtime.lock` constrains the existing runtime so application and
+test builds resolve the same libraries. These are legacy dependencies with known
+advisories; pinning them is not a security fix. Dependency/runtime modernization
+and advisory triage remain separate work. Passing tests or `pip check` does not
+establish production readiness or security clearance.
 
-## Local verification
+## Run the tests
 
-The tests use a real, isolated MongoDB 6 container and generated database names.
-No production connection string is used. The test setup rejects non-local hosts.
+Run the following Bash commands from the repository root with Docker available.
+They build the application image, run tests against MongoDB 6.0.13, and exercise
+the unmodified application image over HTTP with synthetic data and an RPC stub.
 
-```powershell
-docker network create gw-cache-tests-20261023
-docker run --detach --rm --name gw-cache-mongo-20261023 --network gw-cache-tests-20261023 mongo:6.0.13 --bind_ip_all --quiet
-docker build -f tests/Dockerfile -t gw-cache-test:py38-20261023 .
-docker run --rm --network gw-cache-tests-20261023 -e TEST_MONGODB_URI=mongodb://gw-cache-mongo-20261023:27017 -e COVERAGE_FILE=/tmp/cache.coverage --mount "type=bind,source=$($PWD.Path),target=/work,readonly" gw-cache-test:py38-20261023 tests -q --cov=db.query_cache --cov-branch --cov-report=term-missing --cov-fail-under=80
+The tests accept only the named test MongoDB host and generate disposable
+database names. Do not substitute production connection strings or real data.
+Use a clean set of the names below; the preflight refuses existing containers.
+No host ports are exposed.
+
+```bash
+set -euo pipefail
+for name in api-cache-test-mongo api-cache-test-rpc api-cache-smoke-local; do
+  if docker container inspect "$name" >/dev/null 2>&1; then
+    echo "Test container already exists: $name" >&2
+    exit 1
+  fi
+done
+docker network create api-cache-test-network
+cleanup() {
+  docker rm -f api-cache-smoke-local api-cache-test-rpc api-cache-test-mongo >/dev/null 2>&1 || true
+  docker network rm api-cache-test-network >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker build -t api-cache-candidate:local .
+docker run --rm --network none --entrypoint python api-cache-candidate:local -m pip check
+docker build --build-arg PYTHON_VERSION=3.8 -f tests/Dockerfile -t api-cache-tests:local .
+docker run --detach --rm --name api-cache-test-mongo \
+  --network api-cache-test-network mongo:6.0.13 --bind_ip_all --quiet
+docker run --rm --network api-cache-test-network \
+  -e TEST_MONGODB_URI=mongodb://api-cache-test-mongo:27017 \
+  -e COVERAGE_FILE=/tmp/cache.coverage \
+  --mount "type=bind,source=$PWD,target=/work,readonly" \
+  api-cache-tests:local tests -q --cov=db.query_cache --cov-branch \
+  --cov-report=term-missing --cov-fail-under=80
+
+docker run --detach --rm --name api-cache-test-rpc \
+  --network api-cache-test-network \
+  --mount "type=bind,source=$PWD,target=/work,readonly" \
+  --entrypoint python api-cache-tests:local /work/tests/fake_rpc.py
+TEST_DATABASE="api_cache_http_${RANDOM}_$$"
+docker run --detach --rm --name api-cache-smoke-local \
+  --network api-cache-test-network \
+  -e DB_URL=api-cache-test-mongo -e "DB_NAME=$TEST_DATABASE" \
+  -e RPC_HOST=api-cache-test-rpc api-cache-candidate:local
+docker run --rm --network api-cache-test-network \
+  -e TEST_MONGODB_URI=mongodb://api-cache-test-mongo:27017 \
+  -e "TEST_DATABASE=$TEST_DATABASE" -e TEST_API_URL=http://api-cache-smoke-local:5000 \
+  --mount "type=bind,source=$PWD,target=/work,readonly" \
+  --entrypoint python api-cache-tests:local /work/tests/http_smoke.py
 ```
 
-Stop only the test resources created by this procedure after all test processes
-finish. Do not reuse production credentials or restore production data for tests.
+Coverage is reported for `db.query_cache`, not the whole application. The suite
+covers query identity, expiry, concurrent upserts, write errors, ingestion,
+generation changes and reorg checks. The HTTP smoke expects 20 repeated requests
+to cause two address aggregations, then verifies fresh data after a generation
+change. Synthetic tests do not replace real-chain integration or recovery drills.
 
-### Verification performed on 2026-10-23
+The pull-request workflow runs these checks and uploads JUnit/coverage reports
+and a candidate-image archive identified by source SHA, retained for seven days.
+The workflow has read-only repository permissions and does not publish images
+to a registry or deploy them. The existing release workflow is unchanged.
 
-- Initial regression suite against the unchanged source: 5 failed, 3 passed.
-- Updated suite: 41 passed using Python 3.8, the pinned runtime libraries and a
-  real isolated MongoDB 6.0.13. The new cache module reached 100% statement/branch
-  coverage; this is not a whole-application coverage claim.
-- The normal Dockerfile built successfully; `pip check` passed in that image.
-- HTTP smoke used the built image's Gunicorn process, synthetic MongoDB data and
-  a local RPC stub. Ten status requests plus ten address-count requests executed
-  two address aggregations. A subsequent generation change returned fresh data.
-- Independent review found mixed-fork ingestion, translated cache-write errors
-  and order-sensitive cache-key issues. Regressions were added and fixed before
-  rerunning the suite and image smoke.
-- A real MongoDB ingestion test processes a synthetic coinbase and its spend,
-  checks balances and UTXOs, and verifies publication of successive generations.
-- An RPC failure before the first write preserves the previous ready generation;
-  a failure after mutations leaves the state disabled pending verified recovery.
-- No live chain integration, production rollout or production load test has been
-  performed. Existing legacy aggregate/Dockerfile deprecation warnings remain.
+## Deployment prerequisites
 
-The OSV advisory API was also queried for the observed runtime versions in both
-projects. Existing versions of Flask, Jinja2, Werkzeug, certifi, dnspython,
-gunicorn, idna, pymongo, requests and urllib3 have published advisories. This
-patch preserves those deployed versions; it is not a dependency-security
-upgrade or evidence that any advisory is exploitable in this deployment. The
-legacy runtime remains a separate release/security risk requiring triage.
+1. Review and validate the API and daemon together on an isolated database.
+   Exercise interrupted ingestion, reorg detection and the recovery procedure.
+2. Verify existing blocks, UTXOs and balances against a canonical checkpoint.
+   Neither a matching tip hash nor a successful subsequent update proves the
+   consistency of historical data.
+3. Confirm a backup and application-data-only recovery path. Do not restore
+   `cache_state` or `query_cache_v2` from a backup.
+4. Deploy the daemon before the API. A database without a ready marker bypasses
+   caching until a complete new ingestion has published a ready generation.
+5. Verify canonical tip, ready state and repeated-request behavior. Compare
+   HTTP errors, worker timeouts, slow queries and database load with baseline.
+   Leave legacy-cache deletion outside this rollout.
 
-The final local candidate `gw-api-candidate:btcv-cache-20261023` has image ID
-`sha256:da1894455d277c422b2911df99acf0ee2527887b4cc40fec3e330488248fbd30`.
-Its five modified source files were hashed and matched to this worktree. The
-scripts `tests/fake_rpc.py` and `tests/http_smoke.py` provide the local HTTP test.
-Test containers were stopped after validation; no background monitoring remains.
+## Recovery and rollback
 
-## Proposed rollout, not performed
+After an interrupted update or detected reorg, stop the affected daemon and
+preserve diagnostic evidence and a backup. Verify or rebuild application data
+from a canonical source in isolation. Do not reset the marker just to restart
+ingestion, or assume that bypassing the cache makes inconsistent data safe.
 
-The PR workflow now builds the candidate, runs the isolated MongoDB tests and
-the HTTP image smoke, and uploads test reports plus a Docker image archive.
-The archive is named for the exact checked-out source SHA and retained for
-seven days. Loading/publishing that archive for staging is a separate approved
-operation. This workflow has read-only repository permissions, receives no AWS
-secrets, and does not push to ECR, invoke Argo CD, or run the release workflow.
-Its shell steps were executed locally; actual GitHub job and artifact status
-must be checked separately after publication. Existing master release behavior
-is unchanged.
+Only after data consistency has been independently verified, with the daemon
+still stopped, may the operator remove the `_id: "blockchain"` marker from
+`cache_state`. Restart and verify a complete update publishes a fresh ready
+generation. This is a prerequisite, not an automated data-recovery implementation.
 
-1. Review the complete API/daemon patch together. Build from the pinned source
-   plus this patch, not from an unrelated newer branch.
-2. Test the paired API and daemon on an isolated non-production database. Cover
-   successful ingestion, interruption, reorg detection, rollback and HTTP shapes.
-3. Confirm backups and an application-data-only recovery procedure. A restore
-   must not restore `cache_state` or `query_cache_v2` from a dump.
-   Verify the initial application data is consistent; new guards do not detect
-   historical balance/UTXO corruption solely by comparing the tip hash.
-4. In an approved window, roll out the daemon first. A pre-existing database has
-   no ready marker; caching starts only after the next successful ingestion.
-5. Verify the daemon completed an update, `cache_state.ready` is true, and the
-   stored height/hash agrees with the node. Then roll out the API.
-6. Confirm repeated identical requests use the `_id` index and reuse results.
-   Compare worker timeouts, HTTP 5xx, MongoDB slow queries and CPU with baseline.
-7. Do not remove old cache data in the rollout. Schedule cleanup independently.
-
-## Interrupted update or reorg
-
-Stop the affected daemon before recovery. Preserve evidence and a backup first.
-Verify or rebuild the affected `block`, `address` and `utxo` data from a canonical
-source in an isolated database. A height match alone is not a balance/UTXO check.
-Never restore the new cache/state collections from a backup.
-
-After application data has been independently verified and with the daemon still
-stopped, an approved operator can remove only the `_id: "blockchain"` marker from
-`cache_state`. Restart the daemon and verify a complete new block update creates
-a fresh ready generation. Until then the API bypasses the cache. This procedure
-does not authorize database changes or define an unverified restore as safe.
-
-## Rollback
-
-Roll back the API first, then the daemon, using the previously recorded digests
-through the normal approved deployment path. Do not leave the new API running
-with the old daemon: it does not invalidate generations. No legacy collection
-was migrated or removed.
-The previous code ignores the new cache collections, but also lacks the new
-failure guards. Do not roll back to bypass a known data-integrity incident.
+Roll back the API first, confirm all API instances use the previous image, then
+roll back the daemon. **Do not run the new API with the old daemon:** the old
+daemon does not invalidate generations and could leave cached results stale.
+The previous code ignores the new collections but also lacks these safety
+guards. Do not roll back merely to bypass a known data-integrity failure.

@@ -19,7 +19,7 @@ concurrency:
 env:
   TEST_PYTHON: "3.8"
   SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  TEST_DATABASE: cache_fix_http_${{ github.run_id }}_${{ github.run_attempt }}
+  TEST_DATABASE: api_cache_http_${{ github.run_id }}_${{ github.run_attempt }}
 
 jobs:
   build:
@@ -42,12 +42,12 @@ jobs:
       - name: Start isolated test database
         run: |
           docker network create api-cache-ci
-          docker run --detach --rm --name gw-cache-mongo-20261023 --network api-cache-ci mongo:6.0.13 --bind_ip_all --quiet
+          docker run --detach --rm --name api-cache-test-mongo --network api-cache-ci mongo:6.0.13 --bind_ip_all --quiet
 
       - name: Run regression and integration tests
         run: |
           docker run --rm --network api-cache-ci \
-            -e TEST_MONGODB_URI=mongodb://gw-cache-mongo-20261023:27017 \
+            -e TEST_MONGODB_URI=mongodb://api-cache-test-mongo:27017 \
             -e COVERAGE_FILE=/tmp/cache.coverage \
             --mount "type=bind,source=$PWD,target=/work,readonly" \
             --mount "type=bind,source=$RUNNER_TEMP/api-reports,target=/reports" \
@@ -59,15 +59,15 @@ jobs:
 
       - name: Smoke test the application image
         run: |
-          docker run --detach --rm --name gw-cache-rpc-ci --network api-cache-ci \
+          docker run --detach --rm --name api-cache-test-rpc --network api-cache-ci \
             --mount "type=bind,source=$PWD,target=/work,readonly" \
             --entrypoint python api-cache-tests /work/tests/fake_rpc.py
-          docker run --detach --rm --name gw-api-smoke-ci --network api-cache-ci \
-            -e DB_URL=gw-cache-mongo-20261023 -e "DB_NAME=$TEST_DATABASE" \
-            -e RPC_HOST=gw-cache-rpc-ci api-candidate
+          docker run --detach --rm --name api-cache-smoke-ci --network api-cache-ci \
+            -e DB_URL=api-cache-test-mongo -e "DB_NAME=$TEST_DATABASE" \
+            -e RPC_HOST=api-cache-test-rpc api-candidate
           docker run --rm --network api-cache-ci \
-            -e TEST_MONGODB_URI=mongodb://gw-cache-mongo-20261023:27017 \
-            -e "TEST_DATABASE=$TEST_DATABASE" -e TEST_API_URL=http://gw-api-smoke-ci:5000 \
+            -e TEST_MONGODB_URI=mongodb://api-cache-test-mongo:27017 \
+            -e "TEST_DATABASE=$TEST_DATABASE" -e TEST_API_URL=http://api-cache-smoke-ci:5000 \
             --mount "type=bind,source=$PWD,target=/work,readonly" \
             --entrypoint python api-cache-tests /work/tests/http_smoke.py
 
@@ -100,6 +100,6 @@ jobs:
       - name: Remove isolated test resources
         if: always()
         run: |
-          docker rm -f gw-api-smoke-ci gw-cache-rpc-ci gw-cache-mongo-20261023 >/dev/null 2>&1 || true
+          docker rm -f api-cache-smoke-ci api-cache-test-rpc api-cache-test-mongo >/dev/null 2>&1 || true
           docker network rm api-cache-ci >/dev/null 2>&1 || true
 

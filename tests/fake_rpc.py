@@ -1,4 +1,4 @@
-"""Local-only RPC stub for the production-image HTTP smoke test."""
+"""Local-only RPC stub for the application-image HTTP smoke test."""
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
