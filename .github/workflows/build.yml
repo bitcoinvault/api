@@ -25,6 +25,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mongodb: ['4.2.24', '6.0.13']
+    env:
+      MONGO_VERSION: ${{ matrix.mongodb }}
     steps:
       - name: Checkout exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +48,7 @@ jobs:
       - name: Start isolated test database
         run: |
           docker network create api-cache-ci
-          docker run --detach --rm --name api-cache-test-mongo --network api-cache-ci mongo:6.0.13 --bind_ip_all --quiet
+          docker run --detach --rm --name api-cache-test-mongo --network api-cache-ci "mongo:$MONGO_VERSION" --bind_ip_all --quiet
 
       - name: Run regression and integration tests
         run: |
@@ -71,6 +77,14 @@ jobs:
             --mount "type=bind,source=$PWD,target=/work,readonly" \
             --entrypoint python api-cache-tests /work/tests/http_smoke.py
 
+      - name: Smoke test ingestion in the application image
+        run: |
+          docker run --rm --network api-cache-ci \
+            -e DB_URL=api-cache-test-mongo -e "DB_NAME=${TEST_DATABASE}_daemon" \
+            -e RPC_HOST=api-cache-test-rpc \
+            --mount "type=bind,source=$PWD/tests,target=/checks,readonly" \
+            --entrypoint python api-candidate /checks/daemon_smoke.py
+
       - name: Package tested candidate
         run: |
           docker save api-candidate | gzip > "$RUNNER_TEMP/api-candidate.tar.gz"
@@ -81,7 +95,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-reports-${{ env.SOURCE_SHA }}
+          name: test-reports-${{ env.SOURCE_SHA }}-mongo-${{ matrix.mongodb }}
           path: ${{ runner.temp }}/api-reports/
           if-no-files-found: warn
           retention-days: 7
@@ -89,7 +103,7 @@ jobs:
       - name: Upload tested candidate image
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: api-candidate-${{ env.SOURCE_SHA }}
+          name: api-candidate-${{ env.SOURCE_SHA }}-mongo-${{ matrix.mongodb }}
           path: |
             ${{ runner.temp }}/api-candidate.tar.gz
             ${{ runner.temp }}/image-id.txt

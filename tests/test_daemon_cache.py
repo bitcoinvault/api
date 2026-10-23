@@ -89,6 +89,9 @@ def test_reorg_during_sync_does_not_publish(daemon, monkeypatch):
 
 
 def test_missing_utxo_is_not_silently_ignored(chain_data, monkeypatch):
+    monkeypatch.setattr(db, 'get_raw_transaction', lambda txid: {
+        'txid': txid, 'vout': [{'n': 0, 'scriptPubKey': {'addresses': ['address-one']}}],
+    })
     transaction = Tx(txid='test-tx', vin=[Vin(txid='missing', vout=0)])
     if 'hash' in Tx._fields:
         transaction.hash = 'test-tx'
@@ -107,11 +110,11 @@ def test_noop_tick_does_not_enable_uninitialized_cache(daemon, monkeypatch, clea
     assert query_cache.get_generation() is None
 
 
-def test_node_behind_stored_tip_requires_recovery(daemon, monkeypatch):
+def test_node_behind_stored_tip_waits_without_invalidating(daemon, monkeypatch):
     monkeypatch.setattr(daemon, 'get_block_count', lambda: 9)
-    with pytest.raises(RuntimeError, match='canonical'):
+    with pytest.raises(RuntimeError, match='behind'):
         daemon.update_blockchain()
-    assert query_cache.get_generation() is None
+    assert query_cache.get_generation() == 'initial'
 
 
 def test_address_write_conflict_is_not_silently_ignored(monkeypatch):

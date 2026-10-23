@@ -228,3 +228,20 @@ def test_rpc_error_during_partial_writes_stops_without_retrying(daemon, monkeypa
     with pytest.raises(RuntimeError, match='unfinished'):
         daemon.run()
     assert update.call_count == 1
+
+
+def test_btcv_alert_metadata_is_preserved_without_reclassifying_alert_outputs(daemon):
+    incoming = block(11, [transaction('regular', [{'coinbase': '00'}], ['recipient'])])
+    alert = transaction('alert', [{'txid': 'regular', 'vout': 0}], ['alert-recipient'])
+    alert.update(type='alert', status='pending')
+    incoming['atx'] = [alert]
+    new, deleted = {}, {}
+    db.insert_block(incoming, new, deleted)
+    daemon.update_addresses(new, deleted)
+    stored = Block.objects.get(hash='block-11')
+    assert stored.atx[0].txid == 'alert'
+    assert stored.atx[0].type == 'alert'
+    assert stored.atx[0].status == 'pending'
+    assert UTXO.objects.get(id='regular0').value == 2
+    assert Address.objects.get(hash='recipient').balance == 2
+    assert Address.objects(hash='alert-recipient').first() is None

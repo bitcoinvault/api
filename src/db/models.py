@@ -14,6 +14,9 @@ class CacheState(Document):
     id = StringField(primary_key=True)
     generation = StringField(required=True)
     ready = BooleanField(default=False)
+    writes_complete = BooleanField(default=False)
+    verification_height = IntField()
+    verification_hash = StringField()
 
     meta = {'collection': 'cache_state'}
 

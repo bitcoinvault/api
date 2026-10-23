@@ -17,8 +17,12 @@ formats are unchanged.
 - The daemon invalidates the generation before its first write. It publishes a
   new ready generation only after address updates and canonical-chain checks.
   Fetched block heights and parent hashes are checked before insertion.
-- An RPC failure before any write preserves the previous ready generation.
-  An interrupted mutation or detected inconsistency requires verified recovery.
+- RPC failures before ingestion preserve the previous ready generation. After
+  all writes finish, the daemon records the expected tip and can retry canonical
+  verification without replaying balance updates. A crash during mutation or
+  detected inconsistency still requires verified recovery.
+- A lagging or temporarily unavailable node is retried at the polling interval;
+  it is not treated as a confirmed reorg. RPC calls have connection/read timeouts.
 - Cache read/write failures fall back to the underlying query. Ingestion-state
   write failures propagate rather than silently certifying incomplete data.
 
@@ -29,6 +33,17 @@ The legacy cache is not migrated or deleted. Its cleanup is separate maintenance
 **Operational change:** the daemon stops on unfinished updates or noncanonical
 data instead of continuing with potentially inconsistent statistics. Accept this
 behavior and establish a recovery procedure before deploying.
+
+Missing input UTXOs are not ignored blindly. The daemon asks the node for the
+source transaction and skips only an output whose decoded script proves it had
+no supported address. A missing tracked output remains an integrity error.
+This fallback requires verbose `getrawtransaction` access; the node needs an enabled
+transaction index. Verify verbose lookup capability before deployment.
+
+The `writes_complete` marker distinguishes a completed batch awaiting RPC
+verification from an interrupted batch. Only the former can resume automatically,
+and only if the stored height/hash still matches the recorded tip and the node.
+Do not set this marker manually to bypass a failed write.
 
 A missing or unready marker makes API queries bypass the cache. This does not
 repair underlying data: reads during an update retain the existing uncached
@@ -45,7 +60,9 @@ establish production readiness or security clearance.
 
 Run the following Bash commands from the repository root with Docker available.
 They build the application image, run tests against MongoDB 6.0.13, and exercise
-the unmodified application image over HTTP with synthetic data and an RPC stub.
+the unmodified application image over HTTP and through actual daemon ingestion,
+using synthetic data and an RPC stub. CI repeats the checks on MongoDB 4.2.24
+and 6.0.13; this does not identify or certify a production deployment.
 
 The tests accept only the named test MongoDB host and generate disposable
 database names. Do not substitute production connection strings or real data.
@@ -93,6 +110,11 @@ docker run --rm --network api-cache-test-network \
   -e "TEST_DATABASE=$TEST_DATABASE" -e TEST_API_URL=http://api-cache-smoke-local:5000 \
   --mount "type=bind,source=$PWD,target=/work,readonly" \
   --entrypoint python api-cache-tests:local /work/tests/http_smoke.py
+docker run --rm --network api-cache-test-network \
+  -e DB_URL=api-cache-test-mongo -e "DB_NAME=${TEST_DATABASE}_daemon" \
+  -e RPC_HOST=api-cache-test-rpc \
+  --mount "type=bind,source=$PWD/tests,target=/checks,readonly" \
+  --entrypoint python api-cache-candidate:local /checks/daemon_smoke.py
 ```
 
 Coverage is reported for `db.query_cache`, not the whole application. The suite
@@ -102,7 +124,8 @@ to cause two address aggregations, then verifies fresh data after a generation
 change. Synthetic tests do not replace real-chain integration or recovery drills.
 
 The pull-request workflow runs these checks and uploads JUnit/coverage reports
-and a candidate-image archive identified by source SHA, retained for seven days.
+and a candidate-image archive identified by source SHA and MongoDB test version,
+retained for seven days.
 The workflow has read-only repository permissions and does not publish images
 to a registry or deploy them. The existing release workflow is unchanged.
 
@@ -134,7 +157,20 @@ still stopped, may the operator remove the `_id: "blockchain"` marker from
 generation. This is a prerequisite, not an automated data-recovery implementation.
 
 Roll back the API first, confirm all API instances use the previous image, then
-roll back the daemon. **Do not run the new API with the old daemon:** the old
+stop all new daemon instances. In the same controlled window, invalidate cache
+state using the new image and the approved database configuration, before
+starting an old daemon:
+
+```bash
+python -c 'from mongoengine import connect; from db.db import get_db_uri; from db.query_cache import invalidate; connect(host=get_db_uri()); invalidate()'
+```
+
+This rotates the generation and clears the completed-write marker. If it fails,
+stop the rollback rather than starting the old daemon. On a later re-upgrade,
+verify application-data consistency and follow the recovery prerequisites before
+removing the disabled marker. Do not reuse a ready generation across rollback.
+
+**Do not run the new API with the old daemon:** the old
 daemon does not invalidate generations and could leave cached results stale.
 The previous code ignores the new collections but also lacks these safety
 guards. Do not roll back merely to bypass a known data-integrity failure.

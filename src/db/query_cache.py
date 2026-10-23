@@ -21,6 +21,10 @@ def assert_no_pending_update():
     return state
 
 
+def get_pending_verification():
+    return CacheState.objects(id=STATE_ID, ready=False, writes_complete=True).first()
+
+
 def begin_update():
     state = assert_no_pending_update()
     generation = uuid.uuid4().hex
@@ -32,7 +36,8 @@ def begin_update():
     else:
         updated = CacheState.objects(
             id=STATE_ID, generation=state.generation, ready=True).update_one(
-                set__generation=generation, set__ready=False)
+                set__generation=generation, set__ready=False, set__writes_complete=False,
+                unset__verification_height=1, unset__verification_hash=1)
         if updated != 1:
             raise RuntimeError('A concurrent blockchain update has started')
     return generation
@@ -40,7 +45,17 @@ def begin_update():
 
 def invalidate():
     CacheState.objects(id=STATE_ID).update_one(
-        upsert=True, set__generation=uuid.uuid4().hex, set__ready=False)
+        upsert=True, set__generation=uuid.uuid4().hex, set__ready=False,
+        set__writes_complete=False, unset__verification_height=1, unset__verification_hash=1)
+
+
+def mark_writes_complete(generation, height, block_hash):
+    updated = CacheState.objects(
+        id=STATE_ID, generation=generation, ready=False).update_one(
+            set__writes_complete=True, set__verification_height=height,
+            set__verification_hash=block_hash)
+    if updated != 1:
+        raise RuntimeError('Cache generation changed before verification')
 
 
 def complete_update(generation):
