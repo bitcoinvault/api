@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.4 (2021-12-16)
+### Fix
+* Remove assigning txids to addresses to avoid exceeding document size. ([`81edd47`](https://github.com/bitcoinvault/api/commit/81edd479c0205b0996e8f0318bb34db2326f1e7d))
+
 ## v0.1.3 (2021-06-24)
 ### Fix
 * **tx:** Add missing fields for Tx model ([`4e58ff6`](https://github.com/bitcoinvault/api/commit/4e58ff6a86960bc08a78a3e8f9f0edef570355d7))
