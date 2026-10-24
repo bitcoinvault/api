@@ -77,7 +77,7 @@ for name in api-cache-test-mongo api-cache-test-rpc api-cache-smoke-local; do
     exit 1
   fi
 done
-docker network create api-cache-test-network
+docker network create --internal api-cache-test-network
 cleanup() {
   docker rm -f api-cache-smoke-local api-cache-test-rpc api-cache-test-mongo >/dev/null 2>&1 || true
   docker network rm api-cache-test-network >/dev/null 2>&1 || true
@@ -115,6 +115,8 @@ docker run --rm --network api-cache-test-network \
   -e RPC_HOST=api-cache-test-rpc \
   --mount "type=bind,source=$PWD/tests,target=/checks,readonly" \
   --entrypoint python api-cache-candidate:local /checks/daemon_smoke.py
+TEST_NETWORK=api-cache-test-network TEST_DATABASE="$TEST_DATABASE" \
+  API_IMAGE=api-cache-candidate:local bash tests/recovery_smoke.sh
 ```
 
 Coverage is reported for `db.query_cache`, not the whole application. The suite
@@ -131,6 +133,11 @@ to a registry or deploy them. The existing release workflow is unchanged.
 The required `build` check aggregates both MongoDB matrix jobs. It runs even
 when a dependency fails and passes only when the complete matrix succeeds;
 failure, cancellation and skipped jobs must not produce a successful gate.
+
+The [isolated recovery drill](recovery-drill.md) adds real dump/restore and
+interrupted-worker checks on synthetic data. Its log is included with the CI
+test reports. It does not establish a production backup or replace independent
+reconciliation of application data before deployment.
 
 ## Deployment prerequisites
 
