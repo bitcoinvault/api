@@ -5,8 +5,9 @@ from time import sleep
 from mongoengine import connect
 
 from blockchain.blockchain_analyzer import BlockchainAnalyzer
-from blockchain.rpc import get_block, get_block_count
+from blockchain.rpc import RPCError, get_block, get_block_count, get_block_hash
 from db.db import get_db_uri, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
+from db import query_cache
 
 # logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s',
 #                     datefmt='%d-%m-%Y %H:%M:%S')
@@ -90,6 +91,30 @@ def update_analyzer():
     analyzer.set_utxos(get_utxos())
 
 
+def _verify_stored_tip(node_height):
+    tip = get_blockchain().only('hash', 'height').order_by('-height').first()
+    if type(node_height) is not int or node_height < 0:
+        raise RPCError('RPC returned an invalid chain height')
+    if tip is None:
+        return None
+    if tip.height > node_height:
+        raise RPCError('RPC node is behind the stored tip; waiting for synchronization')
+    node_hash = get_block_hash(tip.height)
+    if not isinstance(node_hash, str) or not node_hash:
+        raise RPCError('RPC returned an invalid tip hash')
+    if node_hash != tip.hash:
+        query_cache.invalidate()
+        raise RuntimeError('Stored blockchain tip is not canonical; verified recovery required')
+    return tip
+
+
+def _verify_completed_update(height, block_hash):
+    tip = _verify_stored_tip(get_block_count())
+    if tip is None or tip.height != height or tip.hash != block_hash:
+        query_cache.invalidate()
+        raise RuntimeError('Stored tip changed before canonical verification; verified recovery required')
+
+
 def update_blockchain():
     def _reexecute_queries():
         analyzer.piechart_data(100, 1, analyzer.max_block_number())
@@ -99,8 +124,22 @@ def update_blockchain():
             analyzer.mining_difficulty(interval, lower_height, upper_height)
             analyzer.transaction_volume(interval, lower_height, upper_height)
 
+    pending = query_cache.get_pending_verification()
+    if pending is not None:
+        _verify_completed_update(pending.verification_height, pending.verification_hash)
+        query_cache.complete_update(pending.generation)
+        _reexecute_queries()
+        return
+
+    query_cache.assert_no_pending_update()
     start_block_number = analyzer.max_block_number() + 1
     end_block_number = get_block_count() + 1
+    tip = _verify_stored_tip(end_block_number - 1)
+    if start_block_number == end_block_number:
+        return
+
+    generation = None
+    previous_hash = tip.hash if tip is not None else None
     chunk_size = end_block_number - start_block_number
     iterations = chunk_size // MAX_CHUNK_SIZE + 1
 
@@ -116,10 +155,17 @@ def update_blockchain():
                 logging.debug("Processing block = {}".format(idx))
 
                 block = get_block(idx)
+                if (block.get('height') != idx or
+                        (previous_hash is not None and block.get('previousblockhash') != previous_hash)):
+                    query_cache.invalidate()
+                    raise RuntimeError('Fetched block does not extend the canonical chain; verified recovery required')
                 n_utxos = {}
                 d_utxos = {}
 
+                if generation is None:
+                    generation = query_cache.begin_update()
                 insert_block(block, n_utxos, d_utxos)
+                previous_hash = block['hash']
                 new_utxos = {**new_utxos, **n_utxos}
                 del_utxos = {**del_utxos, **d_utxos}
                 update_analyzer()
@@ -130,8 +176,10 @@ def update_blockchain():
         logging.error(e)
         raise
 
-    if start_block_number != end_block_number:
-        _reexecute_queries()
+    query_cache.mark_writes_complete(generation, end_block_number - 1, previous_hash)
+    _verify_completed_update(end_block_number - 1, previous_hash)
+    query_cache.complete_update(generation)
+    _reexecute_queries()
 
 
 def try_to_connect():
@@ -142,9 +190,18 @@ def try_to_connect():
         raise
 
 
-if __name__ == '__main__':
+def run():
     try_to_connect()
     update_analyzer()
     while True:
-        update_blockchain()
+        try:
+            update_blockchain()
+        except RPCError as error:
+            if query_cache.get_pending_verification() is None:
+                query_cache.assert_no_pending_update()
+            logging.warning('%s; retrying after the polling interval', error)
         sleep(5)
+
+
+if __name__ == '__main__':
+    run()

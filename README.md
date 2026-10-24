@@ -67,9 +67,9 @@ The task of this component is to synchronize the BTCV blockchain so that the dat
 
 This component runs the Mongo database in which blockchain statistics necessary to execute queries for the API are stored. The component actually consists of two parts: the Mongo database and the daemon, which updates this database with data by processing the blockchain. Daemon queries the BTCV node about the blockchain status every 5 seconds and updates the statistics if the database status does not match the blockchain status.
 
-The differences between the state of the base and the state of the blockchain may be due to two reasons: the database does not have statistics from all blocks available in the blockchain (the number of processed blocks for statistics is smaller than the actual number of blocks in the chain) or the reorg occured in blockchain. Both situations are properly handled: the first - by processing the missing blocks and updating the database state, the second - by restoring the last state of the database before the reorg occurence and updating the database from there to the current state of the blockchain. 
+The daemon processes missing blocks and updates address balances. It checks block continuity and the stored tip against the node before publishing a completed cache generation. An interrupted update or detected reorg stops ingestion and requires verified recovery; a matching block height alone does not establish that balances and UTXOs are consistent.
 
-Restoring the database is possible thanks to periodic database backups, made every full thousandth block. The database backup files are saved in `/var/backups/mongodb`. For creating and restoring database daemon uses `mongodump` and `mongorestore` commands provided by MongoDB.
+Automatic database recovery is not provided by this path. Maintain a separately verified backup and recovery procedure. See [query cache and ingestion safety](docs/cache-hardening.md) for cache behavior, test commands, deployment prerequisites and recovery/rollback constraints.
 
 The daemon "talks" to the BTCV node using the RPC methods provided by the node.
 RPC server parameters are provided in `rpc.py` file:

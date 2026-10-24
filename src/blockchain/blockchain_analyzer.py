@@ -23,7 +23,7 @@ class BlockchainAnalyzer:
 
     def total_coin_supply(self):
         pipeline = db_queries.get_total_coin_supply_query()
-        result = db.execute_query(pipeline, db.get_addresses())
+        result = db.execute_query(pipeline, db.get_addresses(), type='totalcoinsupply', params=())
         return 0 if len(result) == 0 else result[0]['total_coin_supply']
 
     def status(self):
@@ -62,7 +62,8 @@ class BlockchainAnalyzer:
 
     def non_empty_wallets_number(self):
         pipeline = db_queries.get_nonempty_wallets_number_query()
-        return db.execute_query(pipeline, db.get_addresses(), default=[{'count': 0}])[0]['count']
+        return db.execute_query(pipeline, db.get_addresses(), type='nonemptywalletsnumber',
+                                params=(), default=[{'count': 0}])[0]['count']
 
     def max_block_number(self):
         pipeline = db_queries.get_highest_block_number_in_db_query()

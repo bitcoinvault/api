@@ -1,0 +1,21 @@
+# Compatibility constraints for the existing Python 3.8 runtime.
+# Dependency upgrades and security remediation are separate work.
+WTForms==3.0.0
+Werkzeug==1.0.1
+urllib3==1.26.7
+requests==2.26.0
+pymongo==3.12.3
+mongoengine==0.23.1
+MarkupSafe==2.0.1
+Jinja2==2.11.3
+itsdangerous==0.24
+idna==3.3
+gunicorn==20.0.4
+Flask==1.1.4
+Flask-WTF==1.0.0
+flask-mongoengine==1.0.0
+email-validator==1.1.3
+dnspython==2.1.0
+click==7.1.2
+charset-normalizer==2.0.9
+certifi==2021.10.8
