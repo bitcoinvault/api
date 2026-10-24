@@ -117,3 +117,15 @@ jobs:
           docker rm -f api-cache-smoke-ci api-cache-test-rpc api-cache-test-mongo >/dev/null 2>&1 || true
           docker network rm api-cache-ci >/dev/null 2>&1 || true
 
+  build-required:
+    name: build
+    needs: [build]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every MongoDB matrix job to succeed
+        env:
+          MATRIX_RESULT: ${{ needs.build.result }}
+        run: test "$MATRIX_RESULT" = success
+

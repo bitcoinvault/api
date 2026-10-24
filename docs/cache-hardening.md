@@ -128,6 +128,9 @@ and a candidate-image archive identified by source SHA and MongoDB test version,
 retained for seven days.
 The workflow has read-only repository permissions and does not publish images
 to a registry or deploy them. The existing release workflow is unchanged.
+The required `build` check aggregates both MongoDB matrix jobs. It runs even
+when a dependency fails and passes only when the complete matrix succeeds;
+failure, cancellation and skipped jobs must not produce a successful gate.
 
 ## Deployment prerequisites
 
