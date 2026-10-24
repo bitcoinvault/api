@@ -14,10 +14,22 @@ ORIGIN = transaction('origin', [{'coinbase': '00'}], [
 SPEND = transaction('spend', [{'txid': 'origin', 'vout': 0}, {'txid': 'origin', 'vout': 1}], [
     {'n': 0, 'value': 3, 'scriptPubKey': {'addresses': ['recipient'], 'hex': '51', 'type': 'pubkeyhash'}},
 ])
+
+
+def alert_transaction(height, input_txid):
+    # BTCV preserves atx metadata, but these outputs are not spendable UTXOs.
+    alert = transaction('alert-' + str(height), [{'txid': input_txid, 'vout': 0}], [
+        {'n': 0, 'value': 97, 'scriptPubKey': {'addresses': ['alert-recipient']}},
+    ])
+    alert.update(type='alert', status='pending')
+    return alert
+
+
 BLOCKS = [
-    {'hash': 'block-0', 'height': 0, 'time': 1, 'difficulty': 1, 'tx': [ORIGIN]},
+    {'hash': 'block-0', 'height': 0, 'time': 1, 'difficulty': 1,
+     'tx': [ORIGIN], 'atx': [alert_transaction(0, 'origin')]},
     {'hash': 'block-1', 'height': 1, 'previousblockhash': 'block-0',
-     'time': 2, 'difficulty': 1, 'tx': [SPEND]},
+     'time': 2, 'difficulty': 1, 'tx': [SPEND], 'atx': [alert_transaction(1, 'spend')]},
 ]
 
 
