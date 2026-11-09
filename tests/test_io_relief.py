@@ -98,7 +98,9 @@ class CacheReadTest(unittest.TestCase):
         results.first.return_value = entry
         cache = Mock()
         cache.filter.return_value = results
+        results.filter_mock = cache.filter
         collection = Mock()
+        collection._document._meta = {'id_field': 'hash'}
         collection.aggregate.return_value = [{'computed': True}]
         model = Mock()
         ns = {
@@ -139,6 +141,53 @@ class CacheReadTest(unittest.TestCase):
         q.count.assert_not_called()
         q.first.assert_not_called()
         m.from_json.assert_not_called()
+
+    def test_chart_lookup_uses_upper_height_and_full_array_equality(self):
+        for params in ([6, 1, 9000], (144, 4670, 9000)):
+            f, q, e, c, m = self.make(1)
+            self.assertEqual(f([], c, type='miningdifficulty', params=params), [{'cached': True}])
+            q.filter_mock.assert_called_once_with(type='miningdifficulty', __raw__={
+                'params': 9000,
+                '$expr': {'$eq': ['$params', {'$literal': list(params)}]}
+            })
+
+    def test_non_chart_params_keep_the_original_lookup(self):
+        for params in ([], [1], [1, 2], [1, 2, 3, 4], [1, '2', 3], [True, 2, 3], None):
+            f, q, e, c, m = self.make(1)
+            self.assertEqual(f([], c, type='custom', params=params), [{'cached': True}])
+            q.filter_mock.assert_called_once_with(type='custom', params=params)
+
+    def test_existence_check_does_not_materialize_the_full_document(self):
+        class Collection:
+            _document = type('Document', (), {'_meta': {'id_field': 'hash'}})
+
+            def __bool__(self):
+                raise AssertionError('unprojected truthiness would load the large block')
+
+            def only(self, field):
+                if field != 'hash':
+                    raise AssertionError('expected the primary key projection')
+                return True
+
+            def aggregate(self, *pipeline):
+                return [{'value': 7}]
+
+        f, q, e, c, m = self.make(1)
+        self.assertEqual(f([], Collection()), [{'value': 7}])
+
+    def test_empty_collection_preserves_defaults_and_errors(self):
+        f, q, e, c, m = self.make(1)
+        c.only.return_value = False
+        self.assertEqual(f([], c, default=[{'height': -1}]), [{'height': -1}])
+        c.aggregate.assert_not_called()
+        with self.assertRaisesRegex(Exception, 'empty collection'):
+            f([], c)
+
+    def test_none_collection_preserves_defaults_and_errors(self):
+        f, q, e, c, m = self.make(1)
+        self.assertEqual(f([], None, default=[]), [])
+        with self.assertRaisesRegex(Exception, 'empty collection'):
+            f([], None)
 
 
 if __name__ == '__main__':
