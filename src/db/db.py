@@ -149,11 +149,13 @@ def execute_query(pipeline, collection, **kwargs):
         cache = get_cache()
         results = cache.filter(type=type, params=params)
 
-        if results.count() != 1:
-            logging.warning('Invalid number of cached results: {0}'.format(results.count()))
+        cached_count = results.count()
+        if cached_count != 1:
+            logging.warning('Invalid number of cached results: {0}'.format(cached_count))
             return None
-        results.first().update(last_accessed=get_highest_block_number_in_db())
-        return results.first().result
+        cached_result = results.first()
+        cached_result.update(last_accessed=get_highest_block_number_in_db())
+        return cached_result.result
 
     def _cache_and_return_query_result(type, params, pipeline, collection):
         def _cache_request_result(type, params, result):

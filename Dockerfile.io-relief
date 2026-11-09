@@ -1,0 +1,4 @@
+FROM 401615164202.dkr.ecr.eu-west-1.amazonaws.com/api@sha256:32de18b5e37905dc0e3ec4169a684bde2bb429c6c3da374f9dc44ad5fb8cc0d8
+COPY src/daemon.py /app/daemon.py
+COPY src/db/db.py /app/db/db.py
+COPY tests/test_io_relief.py /opt/io-relief-tests/test_io_relief.py
