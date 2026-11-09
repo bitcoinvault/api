@@ -98,6 +98,7 @@ class CacheReadTest(unittest.TestCase):
         results.first.return_value = entry
         cache = Mock()
         cache.filter.return_value = results
+        results.filter_mock = cache.filter
         collection = Mock()
         collection.aggregate.return_value = [{'computed': True}]
         model = Mock()
@@ -139,6 +140,21 @@ class CacheReadTest(unittest.TestCase):
         q.count.assert_not_called()
         q.first.assert_not_called()
         m.from_json.assert_not_called()
+
+    def test_chart_lookup_uses_upper_height_and_full_array_equality(self):
+        for params in ([6, 1, 9000], (144, 4670, 9000)):
+            f, q, e, c, m = self.make(1)
+            self.assertEqual(f([], c, type='miningdifficulty', params=params), [{'cached': True}])
+            q.filter_mock.assert_called_once_with(type='miningdifficulty', __raw__={
+                'params': 9000,
+                '$expr': {'$eq': ['$params', {'$literal': list(params)}]}
+            })
+
+    def test_non_chart_params_keep_the_original_lookup(self):
+        for params in ([], [1], [1, 2], [1, 2, 3, 4], [1, '2', 3], [True, 2, 3], None):
+            f, q, e, c, m = self.make(1)
+            self.assertEqual(f([], c, type='custom', params=params), [{'cached': True}])
+            q.filter_mock.assert_called_once_with(type='custom', params=params)
 
 
 if __name__ == '__main__':

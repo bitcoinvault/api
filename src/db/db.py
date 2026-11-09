@@ -147,7 +147,17 @@ def insert_block(block, new_utxos, del_utxos):
 def execute_query(pipeline, collection, **kwargs):
     def _get_from_cache_if_exists(type, params):
         cache = get_cache()
-        results = cache.filter(type=type, params=params)
+        if (isinstance(params, (list, tuple)) and len(params) == 3
+                and all(isinstance(p, int) and not isinstance(p, bool) for p in params)):
+            # Exact array equality only bounds a multikey index by its first
+            # element. Chart params end in the much more selective upper height.
+            # Keep full, ordered array equality as a residual correctness check.
+            results = cache.filter(type=type, __raw__={
+                'params': params[-1],
+                '$expr': {'$eq': ['$params', {'$literal': list(params)}]}
+            })
+        else:
+            results = cache.filter(type=type, params=params)
 
         cached_count = results.count()
         if cached_count != 1:
