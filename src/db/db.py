@@ -178,7 +178,9 @@ def execute_query(pipeline, collection, **kwargs):
         _cache_request_result(type, params, result)
         return result
 
-    if not collection or collection == None:
+    # QuerySet truthiness hydrates its first document. A primary-key projection
+    # preserves the empty-collection behavior without loading a full block.
+    if collection is None or not collection.only(collection._document._meta['id_field']):
         if 'default' in kwargs:
             return kwargs['default']
         raise Exception('execute_query failed: performed on empty collection without default value specified')

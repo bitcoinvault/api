@@ -100,6 +100,7 @@ class CacheReadTest(unittest.TestCase):
         cache.filter.return_value = results
         results.filter_mock = cache.filter
         collection = Mock()
+        collection._document._meta = {'id_field': 'hash'}
         collection.aggregate.return_value = [{'computed': True}]
         model = Mock()
         ns = {
@@ -155,6 +156,38 @@ class CacheReadTest(unittest.TestCase):
             f, q, e, c, m = self.make(1)
             self.assertEqual(f([], c, type='custom', params=params), [{'cached': True}])
             q.filter_mock.assert_called_once_with(type='custom', params=params)
+
+    def test_existence_check_does_not_materialize_the_full_document(self):
+        class Collection:
+            _document = type('Document', (), {'_meta': {'id_field': 'hash'}})
+
+            def __bool__(self):
+                raise AssertionError('unprojected truthiness would load the large block')
+
+            def only(self, field):
+                if field != 'hash':
+                    raise AssertionError('expected the primary key projection')
+                return True
+
+            def aggregate(self, *pipeline):
+                return [{'value': 7}]
+
+        f, q, e, c, m = self.make(1)
+        self.assertEqual(f([], Collection()), [{'value': 7}])
+
+    def test_empty_collection_preserves_defaults_and_errors(self):
+        f, q, e, c, m = self.make(1)
+        c.only.return_value = False
+        self.assertEqual(f([], c, default=[{'height': -1}]), [{'height': -1}])
+        c.aggregate.assert_not_called()
+        with self.assertRaisesRegex(Exception, 'empty collection'):
+            f([], c)
+
+    def test_none_collection_preserves_defaults_and_errors(self):
+        f, q, e, c, m = self.make(1)
+        self.assertEqual(f([], None, default=[]), [])
+        with self.assertRaisesRegex(Exception, 'empty collection'):
+            f([], None)
 
 
 if __name__ == '__main__':
