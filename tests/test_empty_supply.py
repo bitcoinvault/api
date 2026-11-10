@@ -36,7 +36,8 @@ class EmptySupplyTest(unittest.TestCase):
         db_namespace = {'OperationFailure': OperationFailure}
         load_definitions(ROOT / 'db' / 'db.py', ['execute_query'], db_namespace)
         query_namespace = {}
-        load_definitions(ROOT / 'db' / 'db_queries.py', ['get_total_coin_supply_query'], query_namespace)
+        load_definitions(ROOT / 'db' / 'db_queries.py',
+                         ['get_total_coin_supply_query', 'get_highest_block_number_in_db_query'], query_namespace)
         self.pipeline = query_namespace['get_total_coin_supply_query']()
         namespace = {
             'Decimal': Decimal,
@@ -51,6 +52,9 @@ class EmptySupplyTest(unittest.TestCase):
         self.addresses.only.return_value = False
         self.assertEqual(self.analyzer.total_coin_supply(), 0)
         self.addresses.aggregate.assert_called_once_with(*self.pipeline)
+
+    def test_unconfigured_blockchain_returns_default_height(self):
+        self.assertEqual(self.analyzer.max_block_number(), -1)
 
     def test_nonempty_supply_is_preserved(self):
         total = Decimal('300.125')

@@ -7,7 +7,7 @@ REORG_DEPTH = 50
 
 
 class BlockchainAnalyzer:
-    def __init__(self, blockchain=[], addresses=[], utxos=[]):
+    def __init__(self, blockchain=None, addresses=[], utxos=[]):
         self.__blockchain = blockchain
         self.__addresses = addresses
         self.__utxos = utxos
