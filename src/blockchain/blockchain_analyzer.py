@@ -23,7 +23,7 @@ class BlockchainAnalyzer:
 
     def total_coin_supply(self):
         pipeline = db_queries.get_total_coin_supply_query()
-        result = db.execute_query(pipeline, db.get_addresses())
+        result = list(db.get_addresses().aggregate(*pipeline))
         return 0 if len(result) == 0 else result[0]['total_coin_supply']
 
     def status(self):
