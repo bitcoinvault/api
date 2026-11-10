@@ -59,8 +59,9 @@ class EmptySupplyTest(unittest.TestCase):
         self.addresses.aggregate.assert_called_once_with(*self.pipeline)
 
     def test_successful_zero_sum_is_preserved(self):
-        self.addresses.aggregate.return_value = iter([{'total_coin_supply': 0.0}])
-        self.assertEqual(self.analyzer.total_coin_supply(), 0.0)
+        total = Decimal('0')
+        self.addresses.aggregate.return_value = iter([{'total_coin_supply': total}])
+        self.assertIs(self.analyzer.total_coin_supply(), total)
 
     def assert_failure_propagates(self, error, during_iteration=False):
         if during_iteration:
