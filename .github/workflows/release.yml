@@ -5,6 +5,17 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: api-image-publication
+  cancel-in-progress: false
+
 env:
   ECR_REPOSITORY: api
   IMAGE_TAG: ${{ github.sha }}
@@ -14,48 +25,45 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-          token: ${{ secrets.TS_GH_TOKEN }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-access-key-id: ${{ secrets.CI_DEPLOYER_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.CI_DEPLOYER_AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
           role-to-assume: ${{ secrets.CI_DEPLOYER_AWS_ROLE_TO_ASSUME }}
+          allowed-account-ids: "401615164202"
+          unset-current-credentials: true
+          retry-max-attempts: 3
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - uses: satackey/action-docker-layer-caching@v0.0.11
-        # Ignore the failure of a step and avoid terminating the job.
-        continue-on-error: true
-
-      - name: Python Semantic Release
-        uses: relekang/python-semantic-release@master
-        with:
-          github_token: ${{ secrets.TS_GH_TOKEN }}
-          pypi_token: false
-
-      - name: Pull docker docker image (for layers that we dont have)
-        continue-on-error: true
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          DOCKER_CONFIG: ${{ runner.temp }}/ecr-publish
 
-      - name: Builder image
-        run: docker build -t $BUILD_NAME .
-
-      - name: Tag, and push image to Amazon ECR
+      - name: Build and test application image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          DOCKER_CONFIG: ${{ runner.temp }}/ecr-publish
         run: |
-          docker tag $BUILD_NAME $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker tag $BUILD_NAME $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build --file Dockerfile.release --network none \
+            --label "org.opencontainers.image.revision=$IMAGE_TAG" -t "$BUILD_NAME" .
+          python3 .github/scripts/verify_image.py "$BUILD_NAME"
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 128 --memory 256m --cpus 1 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/tests,readonly" \
+            --entrypoint python "$BUILD_NAME" -B -m unittest discover -s /tests -p 'test_*.py' -v
+
+      - name: Publish verified image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          DOCKER_CONFIG: ${{ runner.temp }}/ecr-publish
+        run: python3 .github/scripts/publish_image.py
