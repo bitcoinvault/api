@@ -32,10 +32,11 @@ class WorkflowTests(unittest.TestCase):
     def test_only_master_push_can_publish_with_read_only_github_token(self):
         self.assertEqual(self.workflow['on'], {'push': {'branches': ['master']}})
         self.assertEqual(self.workflow['permissions'], {'contents': 'read'})
+        self.assertNotIn('permissions', self.job)
         checkout = self.steps[0]
         self.assertEqual(checkout['with'], {'ref': '${{ github.sha }}', 'persist-credentials': 'false'})
         serialized = json.dumps(self.workflow)
-        for value in ('TS_GH_TOKEN', 'semantic-release', 'contents: write', 'id-token'):
+        for value in ('TS_GH_TOKEN', 'semantic-release', 'id-token'):
             self.assertNotIn(value, serialized)
 
     def test_pinned_runtime_build_and_tests_precede_push(self):
@@ -73,7 +74,19 @@ class WorkflowTests(unittest.TestCase):
             if 'uses' in step:
                 self.assertRegex(step['uses'], r'^[\w-]+/[\w-]+@[0-9a-f]{40}$')
             self.assertNotIn('continue-on-error', step)
+            self.assertNotIn('if', step)
         self.assertNotIn('continue-on-error', self.job)
+
+    def test_pr_checks_use_an_isolated_python_environment(self):
+        workflow = yaml.load((ROOT / '.github/workflows/publication-checks.yml').read_text(),
+                             Loader=yaml.BaseLoader)
+        steps = workflow['jobs']['publication-tests']['steps']
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        self.assertNotIn('permissions', workflow['jobs']['publication-tests'])
+        self.assertIn('python3 -m venv "$RUNNER_TEMP/publication-checks"', steps[1]['run'])
+        python = '"$RUNNER_TEMP/publication-checks/bin/python"'
+        self.assertIn(python + ' -m pip install PyYAML==6.0.2', steps[1]['run'])
+        self.assertTrue(steps[2]['run'].startswith(python + ' -m unittest'))
 
 
 class PublisherTests(unittest.TestCase):
@@ -99,6 +112,21 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual([call for call in calls if call[0] == 'push'],
                          [('push', self.image + ':' + SHA), ('push', self.image + ':latest')])
         self.assertEqual(self.summary.read_text().count(DIGEST), 2)
+
+    def test_docker_wrapper_uses_checked_bounded_argv(self):
+        result = subprocess.CompletedProcess([], 0, ' digest\n')
+        with patch.object(publisher.subprocess, 'run', return_value=result) as run:
+            self.assertEqual(publisher.docker('push', 'image:sha'), 'digest')
+        run.assert_called_once_with(['docker', 'push', 'image:sha'], check=True,
+                                    stdout=subprocess.PIPE, text=True, timeout=300)
+
+    def test_docker_wrapper_propagates_unknown_and_failed_results(self):
+        for error in (subprocess.TimeoutExpired(['docker'], 300), OSError('not found'),
+                      subprocess.CalledProcessError(1, ['docker'])):
+            with self.subTest(error=type(error).__name__), patch.object(
+                    publisher.subprocess, 'run', side_effect=error):
+                with self.assertRaises(type(error)):
+                    publisher.docker('push', 'image:sha')
 
     def test_invalid_inputs_fail_before_docker(self):
         for key, value in [('IMAGE_TAG', 'latest'), ('IMAGE_TAG', 'x' * 40),

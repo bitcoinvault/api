@@ -17,6 +17,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Install workflow parser
-        run: python3 -m pip install PyYAML==6.0.2
+        run: |
+          python3 -m venv "$RUNNER_TEMP/publication-checks"
+          "$RUNNER_TEMP/publication-checks/bin/python" -m pip install PyYAML==6.0.2
       - name: Test publication contracts
-        run: python3 -m unittest discover -s tests/workflows -v
+        run: '"$RUNNER_TEMP/publication-checks/bin/python" -m unittest discover -s tests/workflows -v'
