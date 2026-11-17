@@ -1,0 +1,24 @@
+name: Publication checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  publication-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install workflow parser
+        run: |
+          python3 -m venv "$RUNNER_TEMP/publication-checks"
+          "$RUNNER_TEMP/publication-checks/bin/python" -m pip install PyYAML==6.0.2
+      - name: Test publication contracts
+        run: '"$RUNNER_TEMP/publication-checks/bin/python" -m unittest discover -s tests/workflows -v'
