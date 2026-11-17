@@ -39,7 +39,7 @@ jobs:
           aws-access-key-id: ${{ secrets.CI_DEPLOYER_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.CI_DEPLOYER_AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
-          role-to-assume: ${{ secrets.CI_DEPLOYER_AWS_ROLE_TO_ASSUME }}
+          role-to-assume: arn:aws:iam::401615164202:role/btcv-ci-deployer
           allowed-account-ids: "401615164202"
           unset-current-credentials: true
           retry-max-attempts: 3

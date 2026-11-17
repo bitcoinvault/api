@@ -54,11 +54,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('RUN rm -rf /app\nWORKDIR /app\nCOPY src .', recipe)
         self.assertNotIn('pip install', recipe)
 
-    def test_existing_aws_contract_is_preserved_with_one_target(self):
+    def test_existing_aws_keys_use_the_explicit_registry_role(self):
         inputs = self.steps[1]['with']
         self.assertEqual(inputs['aws-access-key-id'], '${{ secrets.CI_DEPLOYER_AWS_ACCESS_KEY_ID }}')
         self.assertEqual(inputs['aws-secret-access-key'], '${{ secrets.CI_DEPLOYER_AWS_SECRET_ACCESS_KEY }}')
-        self.assertEqual(inputs['role-to-assume'], '${{ secrets.CI_DEPLOYER_AWS_ROLE_TO_ASSUME }}')
+        self.assertEqual(inputs['role-to-assume'], 'arn:aws:iam::401615164202:role/btcv-ci-deployer')
+        self.assertNotIn('CI_DEPLOYER_AWS_ROLE_TO_ASSUME', json.dumps(self.workflow))
         self.assertEqual(inputs['aws-region'], 'eu-west-1')
         self.assertEqual(inputs['allowed-account-ids'], '401615164202')
         self.assertEqual(inputs['unset-current-credentials'], 'true')
