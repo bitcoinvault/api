@@ -147,7 +147,17 @@ def insert_block(block, new_utxos, del_utxos):
 def execute_query(pipeline, collection, **kwargs):
     def _get_from_cache_if_exists(type, params):
         cache = get_cache()
-        results = cache.filter(type=type, params=params)
+        if (isinstance(params, (list, tuple)) and len(params) == 3
+                and all(isinstance(p, int) and not isinstance(p, bool) for p in params)):
+            # Exact array equality only bounds a multikey index by its first
+            # element. Chart params end in the much more selective upper height.
+            # Keep full, ordered array equality as a residual correctness check.
+            results = cache.filter(type=type, __raw__={
+                'params': params[-1],
+                '$expr': {'$eq': ['$params', {'$literal': list(params)}]}
+            })
+        else:
+            results = cache.filter(type=type, params=params)
 
         cached_count = results.count()
         if cached_count != 1:
@@ -168,7 +178,9 @@ def execute_query(pipeline, collection, **kwargs):
         _cache_request_result(type, params, result)
         return result
 
-    if not collection or collection == None:
+    # QuerySet truthiness hydrates its first document. A primary-key projection
+    # preserves the empty-collection behavior without loading a full block.
+    if collection is None or not collection.only(collection._document._meta['id_field']):
         if 'default' in kwargs:
             return kwargs['default']
         raise Exception('execute_query failed: performed on empty collection without default value specified')
