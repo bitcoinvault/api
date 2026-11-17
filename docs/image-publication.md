@@ -28,10 +28,15 @@ tagged base, but a changed policy or manual deletion can still break builds.
 
 ## Authentication and registry
 
-This change preserves the existing AWS credential and role contract:
-`CI_DEPLOYER_AWS_ACCESS_KEY_ID`, `CI_DEPLOYER_AWS_SECRET_ACCESS_KEY` and
-`CI_DEPLOYER_AWS_ROLE_TO_ASSUME`. The destination remains the `api` repository
+The existing AWS access-key secrets remain `CI_DEPLOYER_AWS_ACCESS_KEY_ID` and
+`CI_DEPLOYER_AWS_SECRET_ACCESS_KEY`. The release explicitly assumes the existing
+`arn:aws:iam::401615164202:role/btcv-ci-deployer` role for the `api` repository
 in account `401615164202`, region `eu-west-1`; the action verifies the account.
+The shared `CI_DEPLOYER_AWS_ROLE_TO_ASSUME` secret is not used: it can select a
+different account from the runtime base and release destination. This binds the
+workflow to the existing registry role without changing keys, IAM policies or
+trust relationships. A missing grant still fails closed; do not remove the
+account guard or substitute a developer session.
 AWS/ECR authentication precedes the build because the pinned base is private.
 The build uses no network for Dockerfile commands and receives no AWS build
 arguments or secret mounts. No additional registry, IAM grant, OIDC provider or operator CLI credential is
