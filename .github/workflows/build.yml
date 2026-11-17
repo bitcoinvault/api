@@ -27,3 +27,12 @@ jobs:
       - name: Build docker image
         run: docker build -t bitcoin-vault-api-ci .
 
+      - name: Run offline regression tests in the built image
+        run: >-
+          docker run --rm --network none --read-only
+          --cap-drop ALL --security-opt no-new-privileges
+          --pids-limit 128 --memory 256m --cpus 1
+          --mount "type=bind,source=${{ github.workspace }}/tests,target=/tests,readonly"
+          --entrypoint python bitcoin-vault-api-ci
+          -B -m unittest discover -s /tests -p 'test_*.py' -v
+

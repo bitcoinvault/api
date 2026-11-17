@@ -1,4 +1,5 @@
 import logging
+import os
 from decimal import Decimal
 from time import sleep
 
@@ -22,6 +23,9 @@ logging.basicConfig(
 
 analyzer = BlockchainAnalyzer()
 MAX_CHUNK_SIZE = 2000
+# Disable only automatic whole-history chart warming; ingestion and HTTP
+# chart queries retain their existing behavior. Enabled by default for rollback.
+PREWARM_ALL_STATS = os.environ.get('PREWARM_ALL_STATS', 'true').strip().lower() not in ('0', 'false', 'no')
 
 period_block_map = {
     'hour': 6,
@@ -93,7 +97,9 @@ def update_analyzer():
 def update_blockchain():
     def _reexecute_queries():
         analyzer.piechart_data(100, 1, analyzer.max_block_number())
-        periods = ['week', 'month', 'all']
+        periods = ['week', 'month']
+        if PREWARM_ALL_STATS:
+            periods.append('all')
         for period in periods:
             interval, lower_height, upper_height = period_to_block_range_and_interval(period)
             analyzer.mining_difficulty(interval, lower_height, upper_height)
