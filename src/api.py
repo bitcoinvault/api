@@ -1,8 +1,11 @@
+import os
+
 from flask import Flask, jsonify, request
 from flask_mongoengine import MongoEngine
 
 from blockchain.blockchain_analyzer import BlockchainAnalyzer
 from db.db import get_addresses, get_blockchain, get_utxos, get_db_uri
+from db.reader_index import ReaderIndexUnavailable, configure_block_index
 
 app = Flask(__name__)
 app.config['DEBUG'] = False
@@ -10,6 +13,7 @@ app.config['MONGODB_SETTINGS'] = {'host': get_db_uri(), 'connect': False}
 db = MongoEngine()
 db.init_app(app)
 analyzer = BlockchainAnalyzer()
+check_block_index = configure_block_index(os.getenv('API_BLOCK_INDEX_MODE', 'manage'))
 
 period_block_map = {
     'hour': 6,
@@ -21,6 +25,11 @@ period_block_map = {
 
 @app.before_request
 def before_request():
+    if check_block_index is not None:
+        try:
+            check_block_index(os.getpid())
+        except ReaderIndexUnavailable as exc:
+            return jsonify(error=str(exc)), 503
     analyzer.set_blockchain(get_blockchain())
     analyzer.set_addresses(get_addresses())
     analyzer.set_utxos(get_utxos())
