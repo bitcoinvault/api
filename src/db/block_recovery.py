@@ -76,7 +76,8 @@ def validate_accounting_shape(raw):
         if not hash_value(tx.get('txid')) or not hash_value(tx.get('hash')) or tx['txid'] in txids:
             raise ValueError('invalid or repeated transaction identity')
         txids.add(tx['txid'])
-        if not isinstance(tx.get('vin'), list) or not tx['vin'] or not isinstance(tx.get('vout'), list):
+        if (not isinstance(tx.get('vin'), list) or not tx['vin']
+                or not isinstance(tx.get('vout'), list) or not tx['vout']):
             raise ValueError('invalid transaction inputs or outputs')
         for vin in tx['vin']:
             if 'coinbase' in vin:

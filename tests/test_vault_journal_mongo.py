@@ -36,6 +36,8 @@ def child(name, branch, tip, fault):
         raw = block(h, branch)
         if fault == "missing-atx" and h == 3:
             del raw["atx"]
+        if fault == "empty-vout" and h == tip:
+            (raw["atx"] or raw["tx"])[-1]["vout"] = []
         return raw
 
     bulk_write, insert_one = Collection.bulk_write, Collection.insert_one
@@ -71,8 +73,10 @@ def child(name, branch, tip, fault):
     with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert):
         try:
             daemon.update_blockchain()
-        except ValueError:
-            if fault != "missing-atx":
+        except ValueError as exc:
+            expected = {"missing-atx": "invalid or missing alert transaction list",
+                        "empty-vout": "invalid transaction inputs or outputs"}
+            if str(exc) != expected.get(fault):
                 raise
             return 83
     return 0
@@ -112,11 +116,16 @@ class VaultMongoTest(unittest.TestCase):
         intents = list(self.db[journal.PENDING].find({}))
         self.assertEqual([(i["_id"], i["body"]["block"]["height"], i["body"]["block"]["_id"])
                           for i in intents], [(journal.KEY, tip, hid(100 + tip))])
+        self.assertEqual(intents[0]["body"]["schema"], 1 if tip == 0 else 2)
 
     def assert_clean(self, tip, branch):
         self.assert_chain(tip)
         self.assertEqual(self.state(), expected(tip, branch))
         self.assertEqual(self.db[journal.PENDING].count_documents({}), 0)
+        for doc in self.docs(UTXO):
+            typed = UTXO._from_son(doc)
+            typed.validate()
+            self.assertEqual(typed.to_mongo().get("pending_alert"), doc.get("pending_alert"))
 
     def assert_idempotent(self, branch, tip):
         self.run_poll(branch, tip)
@@ -179,6 +188,18 @@ class VaultMongoTest(unittest.TestCase):
 
     def test_partial_reservation_then_multi_alert_recovery(self):
         self.crash_sequence("recover", "partial-utxo")
+
+    def test_empty_outputs_never_publish_partial_vault_data(self):
+        for branch in ("settle", "recover"):
+            with self.subTest(branch=branch):
+                self.db = self.client["vault_" + uuid.uuid4().hex]
+                self.addCleanup(self.client.drop_database, self.db.name)
+                for h in (2, 5):
+                    self.run_poll(branch, h-1)
+                    before = [self.docs(m) for m in (Block, UTXO, Address)]
+                    self.run_poll(branch, h, "empty-vout", 83)
+                    self.assertEqual([self.docs(m) for m in (Block, UTXO, Address)], before)
+                    self.assert_clean(h-1, branch)
 
 
 def load_tests(loader, tests, pattern):

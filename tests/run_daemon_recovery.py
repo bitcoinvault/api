@@ -32,8 +32,8 @@ def sources(revision):
         files = {p.relative_to(ROOT).as_posix(): p.read_bytes() for p in (ROOT / "src").rglob("*.py")}
     files[CASE] = (ROOT / "tests" / CASE).read_bytes()
     if not revision:
-        for case in (ROOT / "tests").glob("test_vault_journal*.py"):
-            files[case.name] = case.read_bytes()
+        for name in ("test_vault_journal.py", "test_vault_journal_mongo.py"):
+            files[name] = (ROOT / "tests" / name).read_bytes()
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
         for name, data in sorted(files.items()):

@@ -44,7 +44,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(balances, {'a': Decimal('0.09999999'), 'b': Decimal('0.00000001')})
 
     def test_missing_input_and_duplicate_output_refused(self):
-        cases = [[transfer('e'*64, [{'txid': 'c'*64, 'vout': 0}], [])],
+        cases = [[transfer('e'*64, [{'txid': 'c'*64, 'vout': 0}], [('a', 1)])],
                  [transfer('d'*64, [{'coinbase': '00'}], [('a', 1)])] * 2]
         for txs in cases:
             with self.subTest(txs=txs), patch.object(recovery, 'load', return_value={}):
