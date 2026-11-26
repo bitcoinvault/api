@@ -6,7 +6,8 @@ from time import sleep
 from mongoengine import connect
 
 from blockchain.blockchain_analyzer import BlockchainAnalyzer
-from blockchain.rpc import get_block, get_block_count
+from blockchain.rpc import get_block, get_block_count, get_block_hash
+from db import block_recovery
 from db.db import get_db_uri, get_address, get_addresses, get_blockchain, get_utxos, insert_address, insert_block
 
 # logging.basicConfig(level=logging.DEBUG, filename="daemon.log", format='%(asctime)s %(levelname)-8s %(message)s',
@@ -94,6 +95,24 @@ def update_analyzer():
     analyzer.set_utxos(get_utxos())
 
 
+def update_with_journal():
+    recovered = block_recovery.apply_pending(get_block_hash)
+    tip = block_recovery.checkpoint()
+    last = -1 if tip is None else tip['height']
+    target = get_block_count()
+    if target < last or (tip and get_block_hash(last) != tip['_id']):
+        raise ValueError('committed checkpoint is no longer canonical; refusing forward ingestion')
+    for height in range(last + 1, target + 1):
+        raw = get_block(height)
+        if raw['height'] != height:
+            raise ValueError('unexpected height from Core')
+        block_recovery.ingest_block(raw, get_block_hash)
+    if recovered or target > last:
+        update_analyzer()
+        return True
+    return False
+
+
 def update_blockchain():
     def _reexecute_queries():
         analyzer.piechart_data(100, 1, analyzer.max_block_number())
@@ -104,6 +123,14 @@ def update_blockchain():
             interval, lower_height, upper_height = period_to_block_range_and_interval(period)
             analyzer.mining_difficulty(interval, lower_height, upper_height)
             analyzer.transaction_volume(interval, lower_height, upper_height)
+
+    mode = os.environ.get('DAEMON_RECOVERY_MODE', 'legacy')
+    if mode == 'journal':
+        if update_with_journal():
+            _reexecute_queries()
+        return
+    if mode != 'legacy':
+        raise ValueError('unknown DAEMON_RECOVERY_MODE')
 
     start_block_number = analyzer.max_block_number() + 1
     end_block_number = get_block_count() + 1
@@ -150,6 +177,9 @@ def try_to_connect():
 
 if __name__ == '__main__':
     try_to_connect()
+    if (os.environ.get('DAEMON_RECOVERY_MODE', 'legacy') == 'legacy'
+            and block_recovery.collection(block_recovery.PENDING).find_one({'_id': block_recovery.KEY}, {'_id': 1})):
+        raise ValueError('pending journal: recover with the journal writer before using legacy ingestion')
     update_analyzer()
     while True:
         update_blockchain()
