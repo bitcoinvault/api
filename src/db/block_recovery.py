@@ -68,6 +68,8 @@ def validate_accounting_shape(raw):
         raise ValueError('missing block transactions')
     txids = set()
     for tx in raw['tx']:
+        if tx.get('type') not in ('TX_NONVAULT', 'TX_INSTANT'):
+            raise ValueError('unsupported transaction type in regular transaction list')
         if not hash_value(tx.get('txid')) or not hash_value(tx.get('hash')) or tx['txid'] in txids:
             raise ValueError('invalid or repeated transaction identity')
         txids.add(tx['txid'])
@@ -107,6 +109,10 @@ def plan(raw, previous):
     stamp = time()
     block.insert_time = block.update_time = stamp
     block.validate()
+    if block.height == 0:
+        # Core records genesis but never adds its coinbase to the UTXO set.
+        return {'schema': 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
+                'utxos': [], 'addresses': []}
     keys = {v.txid + str(v.vout) for tx in block.tx for v in tx.vin if 'coinbase' not in v}
     keys.update(tx.txid + str(v.n) for tx in block.tx for v in tx.vout)
     original = load(UTXO._get_collection_name(), keys)

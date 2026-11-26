@@ -18,7 +18,7 @@ except ModuleNotFoundError as error:
 
 
 def transfer(txid, inputs, outputs):
-    return {'txid': txid, 'hash': txid, 'vin': inputs, 'vout': [
+    return {'txid': txid, 'hash': txid, 'type': 'TX_NONVAULT', 'vin': inputs, 'vout': [
         {'value': value, 'n': n, 'scriptPubKey': {'addresses': [addr]} if addr else {'type': 'nulldata', 'hex': '6a'}}
         for n, (addr, value) in enumerate(outputs)]}
 
@@ -36,6 +36,7 @@ class PlanningTests(unittest.TestCase):
         transactions = [transfer('c'*64, [{'coinbase': '00'}], [('a', 0.1), ('', 0)]),
                         transfer('d'*64, [{'txid': 'c'*64, 'vout': 0}],
                                  [('a', 0.09999999), ('b', 0.00000001)])]
+        transactions[1]['type'] = 'TX_INSTANT'
         with patch.object(recovery, 'load', return_value={}):
             plan = recovery.plan(block(transactions), self.tip)
         self.assertEqual([row['key'] for row in plan['utxos']], ['d'*64+'0', 'd'*64+'1'])
@@ -89,6 +90,10 @@ class PlanningTests(unittest.TestCase):
         tx = transfer('d'*64, [{'coinbase': '00'}], [('a', 1), ('', 0)])
         transformations = [
             lambda b: b.update(atx=[tx]),
+            lambda b: b['tx'][0].pop('type'),
+            lambda b: b['tx'][0].update(type='TX_ALERT'),
+            lambda b: b['tx'][0].update(type='TX_RECOVERY'),
+            lambda b: b['tx'][0].update(type='TX_INVALID'),
             lambda b: b['tx'][0]['vout'][0]['scriptPubKey'].update(addresses=[12]),
             lambda b: b['tx'][0]['vout'][1]['scriptPubKey'].update(type='nonstandard'),
             lambda b: b['tx'][0]['vin'][0].update(txid='c'*64, vout=0),

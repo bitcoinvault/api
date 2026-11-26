@@ -18,7 +18,7 @@ def hexid(n):
 
 
 def tx(n, inputs, outputs):
-    return {"txid": hexid(n), "hash": hexid(n),
+    return {"txid": hexid(n), "hash": hexid(n), "type": "TX_NONVAULT",
             "vin": [{"txid": hexid(i), "vout": v} for i, v in inputs] or [{"coinbase": "00"}],
             "vout": [{"n": i, "value": v, "scriptPubKey": {"addresses": [a]}}
                      for i, (a, v) in enumerate(outputs)]}
@@ -29,10 +29,11 @@ def block(height):
         transactions = [tx(1000000 + height, [], [("fixture-A" if height == SEED else "fixture-M", 8.0)])]
     else:
         transactions = {
-            0: [tx(20, [], [("A", 8.0)])],
-            1: [tx(21, [(20, 0)], [("bridge", 5.125), ("A", 2.875)]),
+            0: [tx(19, [], [("genesis", 175.0)])],
+            1: [tx(20, [], [("A", 8.0)])],
+            2: [tx(21, [(20, 0)], [("bridge", 5.125), ("A", 2.875)]),
                 tx(22, [(21, 0)], [("B", 5.125)])],
-            2: [tx(23, [(22, 0)], [("C", 5.125)])]
+            3: [tx(23, [(22, 0)], [("C", 5.125)])]
         }[height]
     return {"hash": hexid(height + 1), "previousblockhash": hexid(height),
             "height": height, "time": 1700000000 + 600 * height, "difficulty": 4.0,
@@ -54,7 +55,7 @@ def child(name, tip, fault):
     hashes = []
 
     def canonical(height):
-        if height not in (0, 1, 2, SEED, SEED + 1, SEED + 2) or not 0 <= height <= tip:
+        if height not in (0, 1, 2, 3, SEED, SEED + 1, SEED + 2) or not 0 <= height <= tip:
             raise AssertionError("unexpected Core height: %s" % height)
         hashes.append(height)
         return hexid(9000 if fault == "changed-hash" and height == tip else height + 1)
@@ -63,7 +64,10 @@ def child(name, tip, fault):
         canonical(height)
         if fault == "fetch" and height == SEED + 2:
             raise IOError("fixture block fetch failed")
-        return block(height)
+        raw = block(height)
+        if height == tip and fault in ("TX_ALERT", "TX_RECOVERY"):
+            raw["tx"][0]["type"] = fault
+        return raw
 
     # Instrument real writes, not the journal's plan or replay functions.
     bulk_write, insert_one = Collection.bulk_write, Collection.insert_one
@@ -99,6 +103,8 @@ def child(name, tip, fault):
         except ValueError as exc:
             if fault == "changed-hash" and "canonical" in str(exc) and tip in hashes:
                 return 82
+            if fault in ("TX_ALERT", "TX_RECOVERY") and "unsupported transaction type" in str(exc):
+                return 83
             raise
     return 0
 
@@ -169,46 +175,76 @@ class RecoveryTest(unittest.TestCase):
                 with self.subTest(tip=tip, poll=attempt):
                     self.assertEqual(actual, clean)
 
+    def test_genesis_checkpoints_without_crediting_coinbase(self):
+        from db import block_recovery as journal
+        db = self.fresh()
+        self.cycle(db, 0, "checkpoint-ack", CRASH)
+        pending = db[journal.PENDING].find_one({"_id": journal.KEY})
+        self.assertEqual(pending["body"]["utxos"], [])
+        self.assertEqual(pending["body"]["addresses"], [])
+        for _ in range(2):
+            self.cycle(db, 0)
+            state = self.state(db)
+            self.assertEqual([(b["height"], b["_id"]) for b in state["blocks"]], [(0, hexid(1))])
+            self.assertEqual(state["balances"], [])
+            self.assertEqual(state["utxos"], [])
+            self.assertEqual(db[journal.PENDING].count_documents({}), 0)
+
+    def test_regular_vault_transactions_leave_funded_index_untouched(self):
+        from db import block_recovery as journal
+        db = self.fresh()
+        self.cycle(db, 1)
+        before = self.state(db)
+        self.assertEqual([u["_id"] for u in before["utxos"]], [hexid(20) + "0"])
+        for tx_type in ("TX_ALERT", "TX_RECOVERY"):
+            with self.subTest(tx_type=tx_type):
+                self.cycle(db, 2, tx_type, 83)
+                self.assertEqual(self.state(db), before)
+                self.assertEqual(db[journal.PENDING].count_documents({}), 0)
+
     def test_spends_and_interrupted_writes(self):
         from db import block_recovery as journal
         ref = self.fresh()
+        # Legacy credits genesis on a fresh sync; compare ordinary blocks from the same checkpoint.
+        self.cycle(ref, 0)
         self.cycle(ref, 1, mode="legacy")
-        clean_at_one = self.state(ref)
         self.cycle(ref, 2, mode="legacy")
         clean_at_two = self.state(ref)
-        self.assertEqual(self.amounts(clean_at_two), {"A": 2.875, "bridge": 0, "B": 0, "C": 5.125})
-        self.assertEqual([(r["_id"], r["address"], r["value"]) for r in clean_at_two["utxos"]],
+        self.cycle(ref, 3, mode="legacy")
+        clean_at_three = self.state(ref)
+        self.assertEqual(self.amounts(clean_at_three), {"A": 2.875, "bridge": 0, "B": 0, "C": 5.125})
+        self.assertEqual([(r["_id"], r["address"], r["value"]) for r in clean_at_three["utxos"]],
                          [(hexid(21) + "1", "A", 2.875), (hexid(23) + "0", "C", 5.125)])
         for fault in ("partial-utxo", "partial-address", "checkpoint-ack"):
             with self.subTest(fault=fault):
                 db = self.fresh()
-                self.cycle(db, 0)
-                genesis = self.state(db)
-                self.cycle(db, 1, fault, CRASH)
+                self.cycle(db, 1)
+                funded = self.state(db)
+                self.cycle(db, 2, fault, CRASH)
                 mid = self.state(db)
                 pending = list(db[journal.PENDING].find({}))
                 self.assertEqual(len(pending), 1)
-                self.assertEqual(mid["blocks"], clean_at_one["blocks"] if fault == "checkpoint-ack"
-                                 else genesis["blocks"])
+                self.assertEqual(mid["blocks"], clean_at_two["blocks"] if fault == "checkpoint-ack"
+                                 else funded["blocks"])
                 if fault == "partial-utxo":
-                    self.assertNotIn(mid["utxos"], (genesis["utxos"], clean_at_one["utxos"]))
-                    self.assertEqual(mid["balances"], genesis["balances"])
+                    self.assertNotIn(mid["utxos"], (funded["utxos"], clean_at_two["utxos"]))
+                    self.assertEqual(mid["balances"], funded["balances"])
                 if fault == "partial-address":
-                    self.assertEqual(mid["utxos"], clean_at_one["utxos"])
-                    self.assertNotIn(mid["balances"], (genesis["balances"], clean_at_one["balances"]))
+                    self.assertEqual(mid["utxos"], clean_at_two["utxos"])
+                    self.assertNotIn(mid["balances"], (funded["balances"], clean_at_two["balances"]))
                 if fault == "checkpoint-ack":
-                    self.assertEqual(mid, clean_at_one)
+                    self.assertEqual(mid, clean_at_two)
                 # Reject an orphaned pending block without repairing/publishing its edits.
-                self.cycle(db, 1, "changed-hash", 82)
+                self.cycle(db, 2, "changed-hash", 82)
                 self.assertEqual(self.state(db), mid)
                 self.assertEqual(list(db[journal.PENDING].find({})), pending)
-                for tip, clean in [(1, clean_at_one), (1, clean_at_one), (2, clean_at_two), (2, clean_at_two)]:
+                for tip, clean in [(2, clean_at_two), (2, clean_at_two), (3, clean_at_three), (3, clean_at_three)]:
                     self.cycle(db, tip)
                     self.assertEqual(self.state(db), clean)
                     self.assertEqual(db[journal.PENDING].count_documents({}), 0)
-                self.cycle(db, 2, "changed-hash", 82)
-                self.assertEqual(self.state(db), clean_at_two)
-                print("Recovered %s: checkpoints 1 and 2 match clean legacy; both polled twice" % fault,
+                self.cycle(db, 3, "changed-hash", 82)
+                self.assertEqual(self.state(db), clean_at_three)
+                print("Recovered %s: checkpoints 2 and 3 match clean legacy; both polled twice" % fault,
                       flush=True)
 
 

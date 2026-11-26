@@ -87,8 +87,11 @@ Enable only with a verified starting index, journaled MongoDB storage and
 new one; this protocol is not a lease or an automatic takeover mechanism.
 Recovery does not reconstruct previously missed balances. API queries are not
 transactionally isolated from an in-progress block. This mode handles ordinary
-single-address outputs and explicit OP_RETURN data outputs only. A nonempty
-alert-transaction list, unknown input, unsupported output, conflicting stored
+single-address outputs and explicit OP_RETURN data outputs only. Core must
+identify each regular transaction as `TX_NONVAULT` or `TX_INSTANT`. A fresh
+journal index checkpoints genesis without crediting its unspendable coinbase;
+this does not repair an existing index. A nonempty alert-transaction list,
+unsupported or missing transaction type, unknown input, unsupported output, conflicting stored
 state or journal at the BSON size limit is a stop, not a reason to skip a block.
 The writer rechecks the block hash with Core before publishing the checkpoint
 and before retiring the journal. If a reorganization is detected after a
