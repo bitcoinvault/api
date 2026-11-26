@@ -130,7 +130,7 @@ def alert_merkle_root(alerts):
     return level[0][::-1].hex() if level else '0' * 64
 
 
-def validate_accounting_shape(raw):
+def validate_accounting_shape(raw, activation_height=None):
     def hash_value(s):
         return isinstance(s, str) and re.fullmatch('[0-9a-f]{64}', s)
 
@@ -145,6 +145,9 @@ def validate_accounting_shape(raw):
         raise ValueError('missing block transactions')
     txids = set()
     regular_types = ('TX_NONVAULT', 'TX_INSTANT', 'TX_ALERT', 'TX_RECOVERY')
+    if activation_height is not None and raw['height'] < activation_height:
+        # Core can report a non-contextual vault classification it did not enforce.
+        regular_types += ('TX_INVALID',)
     for tx, allowed in chain(((tx, regular_types) for tx in raw['tx']),
                              ((tx, ('TX_ALERT',)) for tx in raw['atx'])):
         if not isinstance(tx, dict) or tx.get('type') not in allowed:
@@ -201,8 +204,8 @@ def check_reservation(spent, tx, height, groups, alerts_enabled):
 
 
 def plan(raw, previous, genesis_hash):
-    validate_accounting_shape(raw)
     activation = ALERTS_HEIGHT_BY_GENESIS[known_genesis(genesis_hash)]
+    validate_accounting_shape(raw, activation)
     if raw['height'] == 0 and raw['hash'] != genesis_hash:
         raise ValueError('block does not match Core genesis')
     alerts_enabled = raw['height'] >= activation

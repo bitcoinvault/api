@@ -132,7 +132,7 @@ class VaultPlannerTest(unittest.TestCase):
         self.advance(1, "settle")
         for genesis, activation in ((MAINNET, 58420), (TESTNET, 92960)):
             for offset in (-1, 0):
-                for kind in ("TX_NONVAULT", "TX_ALERT", "TX_RECOVERY"):
+                for kind in ("TX_NONVAULT", "TX_INSTANT", "TX_ALERT", "TX_RECOVERY", "TX_INVALID"):
                     raw = block(5, "settle")
                     raw["height"] = activation + offset
                     raw["tx"][1]["type"] = kind
@@ -142,7 +142,10 @@ class VaultPlannerTest(unittest.TestCase):
                     tip = {"height": raw["height"]-1, "_id": raw["previousblockhash"]}
                     with self.subTest(genesis=genesis, offset=offset, kind=kind), \
                             patch.object(journal, "load", side_effect=self.read):
-                        if offset == 0 and kind != "TX_NONVAULT":
+                        if offset == 0 and kind == "TX_INVALID":
+                            with self.assertRaisesRegex(ValueError, "unsupported transaction type"):
+                                journal.plan(raw, tip, genesis)
+                        elif offset == 0 and kind in ("TX_ALERT", "TX_RECOVERY"):
                             with self.assertRaisesRegex(ValueError, "without an indexed reservation"):
                                 journal.plan(raw, tip, genesis)
                         else:

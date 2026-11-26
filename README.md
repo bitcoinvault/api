@@ -121,6 +121,9 @@ consistent backup. A clean block journal does not mean there are no outstanding
 vault alerts: reservations persist on UTXOs between blocks. This version checks
 for both conditions once at legacy daemon startup, before processing blocks;
 an untouched legacy database has no journal collection and needs no UTXO scan.
+The daemon must be able to list collections on the selected database and read
+UTXO index metadata on a previously journaled database. A denied catalog read
+is an error, not evidence of an unused journal.
 This distinction requires the complete database, including empty collections:
 never drop the journal collection or switch writers on a partial restore.
 A fresh journal replay prepares the sparse reservation index at genesis. Before
