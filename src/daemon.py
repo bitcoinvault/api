@@ -177,9 +177,8 @@ def try_to_connect():
 
 if __name__ == '__main__':
     try_to_connect()
-    if (os.environ.get('DAEMON_RECOVERY_MODE', 'legacy') == 'legacy'
-            and block_recovery.collection(block_recovery.PENDING).find_one({'_id': block_recovery.KEY}, {'_id': 1})):
-        raise ValueError('pending journal: recover with the journal writer before using legacy ingestion')
+    if os.environ.get('DAEMON_RECOVERY_MODE', 'legacy') == 'legacy':
+        block_recovery.require_legacy_compatible()
     update_analyzer()
     while True:
         update_blockchain()

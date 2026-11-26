@@ -27,6 +27,13 @@ def collection(name):
     return get_db().get_collection(name, write_concern=WC)
 
 
+def require_legacy_compatible():
+    if collection(PENDING).find_one({'_id': KEY}, {'_id': 1}) is not None:
+        raise ValueError('pending journal: recover with the journal writer before using legacy ingestion')
+    if collection(UTXO._get_collection_name()).find_one({'pending_alert': {'$exists': True}}, {'_id': 1}) is not None:
+        raise ValueError('outstanding vault reservation: cannot start legacy ingestion on this index')
+
+
 def checkpoint():
     rows = list(collection(Block._get_collection_name()).find(
         {}, {'height': 1}).sort('height', -1).limit(2))

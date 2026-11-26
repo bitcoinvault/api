@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import sys
 import unittest
@@ -30,6 +31,25 @@ def child(name, branch, tip, fault):
     os.environ.update(DB_PROTOCOL="mongodb", DB_URL=MONGO, DB_PORT="27017", DB_NAME=name,
                       DB_USERNAME="", DB_PASSWORD="", DB_URI_PARAMS="?serverSelectionTimeoutMS=3000",
                       PREWARM_ALL_STATS="false", DAEMON_RECOVERY_MODE="journal")
+    if fault in ("legacy-reservation", "legacy-intent", "legacy-compatible"):
+        del os.environ["DAEMON_RECOVERY_MODE"]
+
+        class FirstCorePoll(Exception):
+            pass
+
+        with patch("blockchain.rpc.get_block_count", side_effect=FirstCorePoll):
+            try:
+                runpy.run_module("daemon", run_name="__main__")
+            except FirstCorePoll:
+                if fault != "legacy-compatible":
+                    raise AssertionError("legacy polled Core on an incompatible database")
+                return 0
+            except ValueError as exc:
+                prefix = {"legacy-reservation": "outstanding vault reservation:", "legacy-intent": "pending journal:"}
+                if fault not in prefix or not str(exc).startswith(prefix[fault]):
+                    raise
+                return 84
+        raise AssertionError("legacy daemon exited before the first poll")
     import daemon
 
     def fetch(h):
@@ -190,6 +210,21 @@ class VaultMongoTest(unittest.TestCase):
 
     def test_partial_reservation_then_multi_alert_recovery(self):
         self.crash_sequence("recover", "partial-utxo")
+
+    def test_legacy_start_refuses_pending_intent_or_committed_reservation(self):
+        self.run_poll("settle", 0, "legacy-compatible")
+        self.run_poll("settle", 1)
+        self.run_poll("settle", 2, "checkpoint-ack", CRASH)
+        self.assert_pending(2)
+        self.run_poll("settle", 2, "legacy-intent", 84)
+        self.assert_pending(2)
+        self.run_poll("settle", 2)
+        self.assert_clean(2, "settle")
+        self.run_poll("settle", 2, "legacy-reservation", 84)
+        self.assert_clean(2, "settle")
+        self.run_poll("settle", 5)
+        self.assert_clean(5, "settle")
+        self.run_poll("settle", 5, "legacy-compatible")
 
     def test_empty_outputs_never_publish_partial_vault_data(self):
         for branch in ("settle", "recover"):

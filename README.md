@@ -111,7 +111,10 @@ has no pending record and that the checkpoint and indexed data are consistent.
 Older binaries do not know about the journal. Do not discard the pending
 record to unblock a restart; retain the database for recovery or use a verified
 consistent backup. A clean block journal does not mean there are no outstanding
-vault alerts: reservations persist on UTXOs between blocks. Do not reuse a
+vault alerts: reservations persist on UTXOs between blocks. This version checks
+for both conditions once at legacy daemon startup, before processing blocks;
+checking for reservations can scan the UTXO collection on an unindexed database.
+The check does not fence another writer or protect a downgrade to an older binary. Do not reuse a
 legacy checkpoint with missing reservations, or point an older writer at an
 index containing them. Use a fresh replay or a verified compatible snapshot.
 Measure throughput and disk I/O on a representative index
