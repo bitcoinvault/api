@@ -17,6 +17,9 @@ except ModuleNotFoundError as error:
     recovery = None
 
 
+REGTEST = '01cead69f2b51e214e1c2cd50e3744428cae526db87b2ff8f32489ff801d0f1d'
+
+
 def transfer(txid, inputs, outputs):
     return {'txid': txid, 'hash': txid, 'type': 'TX_NONVAULT', 'vin': inputs, 'vout': [
         {'value': value, 'n': n, 'scriptPubKey': {'addresses': [addr]} if addr else {'type': 'nulldata', 'hex': '6a'}}
@@ -24,13 +27,13 @@ def transfer(txid, inputs, outputs):
 
 
 def block(tx):
-    return {'hash': 'b' * 64, 'height': 1, 'previousblockhash': 'a' * 64,
-            'time': 1300000010, 'difficulty': 2.0, 'tx': tx, 'atx': []}
+    return {'hash': 'b' * 64, 'height': 1, 'previousblockhash': REGTEST,
+            'time': 1300000010, 'difficulty': 2.0, 'tx': tx, 'atx': [], 'alertmerkleroot': '0' * 64}
 
 
 @unittest.skipUnless(recovery, 'requires daemon runtime dependencies')
 class PlanningTests(unittest.TestCase):
-    tip = {'_id': 'a' * 64, 'height': 0}
+    tip = {'_id': REGTEST, 'height': 0}
 
     def test_same_block_spend_and_smallest_unit(self):
         transactions = [transfer('c'*64, [{'coinbase': '00'}], [('a', 0.1), ('', 0)]),
@@ -38,7 +41,7 @@ class PlanningTests(unittest.TestCase):
                                  [('a', 0.09999999), ('b', 0.00000001)])]
         transactions[1]['type'] = 'TX_INSTANT'
         with patch.object(recovery, 'load', return_value={}):
-            plan = recovery.plan(block(transactions), self.tip)
+            plan = recovery.plan(block(transactions), self.tip, REGTEST)
         self.assertEqual([row['key'] for row in plan['utxos']], ['d'*64+'0', 'd'*64+'1'])
         balances = {a['key']: Decimal(str(a['after']['balance'])) for a in plan['addresses']}
         self.assertEqual(balances, {'a': Decimal('0.09999999'), 'b': Decimal('0.00000001')})
@@ -49,13 +52,13 @@ class PlanningTests(unittest.TestCase):
         for txs in cases:
             with self.subTest(txs=txs), patch.object(recovery, 'load', return_value={}):
                 with self.assertRaises(ValueError):
-                    recovery.plan(block(copy.deepcopy(txs)), self.tip)
+                    recovery.plan(block(copy.deepcopy(txs)), self.tip, REGTEST)
 
     def test_wrong_parent_refused_before_data_reads(self):
         with patch.object(recovery, 'load') as read:
             with self.assertRaisesRegex(ValueError, 'checkpoint'):
                 recovery.plan(block([transfer('d'*64, [{'coinbase': '00'}], [('a', 1)])]),
-                              dict(self.tip, _id='1'*64))
+                              dict(self.tip, _id='1'*64), REGTEST)
             read.assert_not_called()
 
     def test_invalid_amount_refused(self):
@@ -68,7 +71,7 @@ class PlanningTests(unittest.TestCase):
                 patch.object(recovery, 'checkpoint'), patch.object(recovery, 'MAX_BSON', 128), \
                 patch.object(recovery, 'collection') as db:
             with self.assertRaisesRegex(ValueError, 'BSON'):
-                recovery.ingest_block({}, lambda _: None)
+                recovery.ingest_block({}, lambda _: REGTEST)
             db.assert_not_called()
 
     def test_corrupt_intent_never_replayed(self):
@@ -106,7 +109,7 @@ class PlanningTests(unittest.TestCase):
             with self.subTest(raw=raw), patch.object(recovery, 'checkpoint', return_value=self.tip), \
                     patch.object(recovery, 'collection') as db, self.assertRaises(ValueError):
                 try:
-                    recovery.ingest_block(raw, lambda _: raw['hash'])
+                    recovery.ingest_block(raw, lambda h: REGTEST if h == 0 else raw['hash'])
                 finally:
                     db.assert_not_called()
 
@@ -115,7 +118,7 @@ class PlanningTests(unittest.TestCase):
         with patch.object(recovery, 'plan', return_value=body), patch.object(recovery, 'checkpoint'), \
                 patch.object(recovery, 'collection') as coll, self.assertRaisesRegex(ValueError, 'already exists'):
             try:
-                recovery.ingest_block({}, lambda _: 'b'*64)
+                recovery.ingest_block({}, lambda h: REGTEST if h == 0 else 'b'*64)
             finally:
                 coll.return_value.insert_one.assert_not_called()
 

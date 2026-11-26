@@ -96,7 +96,16 @@ def update_analyzer():
 
 
 def update_with_journal():
-    recovered = block_recovery.apply_pending(get_block_hash)
+    genesis = None
+
+    def anchored_hash(height):
+        # Bind pending replay and new plans to this poll's Core, never a process-wide default.
+        nonlocal genesis
+        if genesis is None:
+            genesis = block_recovery.known_genesis(get_block_hash(0))
+        return genesis if height == 0 else get_block_hash(height)
+
+    recovered = block_recovery.apply_pending(anchored_hash)
     tip = block_recovery.checkpoint()
     last = -1 if tip is None else tip['height']
     target = get_block_count()
@@ -106,7 +115,7 @@ def update_with_journal():
         raw = get_block(height)
         if raw['height'] != height:
             raise ValueError('unexpected height from Core')
-        block_recovery.ingest_block(raw, get_block_hash)
+        block_recovery.ingest_block(raw, get_block_hash, genesis_hash=anchored_hash(0))
     if recovered or target > last:
         update_analyzer()
         return True

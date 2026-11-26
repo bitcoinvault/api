@@ -19,6 +19,7 @@ KEY = 'active'
 MAX_BSON = 16 * 1024 * 1024
 SAT = Decimal('0.00000001')
 WC = WriteConcern(w=1, j=True)
+RESERVATION_INDEX = 'legacy_pending_alert_sparse_v1'
 # Core's ConnectBlock applies vatx only above this absolute height on all three BTCV networks.
 ALERT_INIT_WINDOW = 144
 
@@ -27,10 +28,51 @@ def collection(name):
     return get_db().get_collection(name, write_concern=WC)
 
 
+def _reservation_index_ready(indexes):
+    spec = indexes.get(RESERVATION_INDEX)
+    if spec is None:
+        return False
+    if (list(spec['key']) != [('pending_alert', 1)] or spec.get('sparse') is not True
+            or 'partialFilterExpression' in spec or spec.get('hidden') or 'buildUUID' in spec
+            or 'expireAfterSeconds' in spec or spec.get('unique')):
+        raise ValueError('unexpected reservation index definition; stop for operator review')
+    return True
+
+
+def prepare_legacy_reservation_index():
+    """Explicit, fenced migration for an existing index; never called by legacy startup.
+
+    Only on a complete database with all writers stopped. Run before switching a populated
+    legacy index to journal mode, or when upgrading an older journal database. Building
+    can scan existing data; Mongo then maintains the index across writes and restarts.
+    Check require_legacy_compatible() separately; DDL is not clearance for downgrade.
+    """
+    utxos = collection(UTXO._get_collection_name())
+    if not _reservation_index_ready(utxos.index_information()):
+        utxos.create_index([('pending_alert', 1)], name=RESERVATION_INDEX, sparse=True)
+        if not _reservation_index_ready(utxos.index_information()):
+            raise ValueError('reservation index build not confirmed')
+
+
 def require_legacy_compatible():
-    if collection(PENDING).find_one({'_id': KEY}, {'_id': 1}) is not None:
+    pending = collection(PENDING)
+    if pending.find_one({'_id': KEY}, {'_id': 1}) is not None:
         raise ValueError('pending journal: recover with the journal writer before using legacy ingestion')
-    if collection(UTXO._get_collection_name()).find_one({'pending_alert': {'$exists': True}}, {'_id': 1}) is not None:
+    # Stock legacy never created this namespace. All journal versions inserted the intent
+    # before edits and deleted only the document. Restore the COMPLETE database, including
+    # empty collections: a missing/dropped journal after a partial restore is not evidence.
+    if not pending.database.list_collection_names(filter={'name': PENDING}):
+        return
+    utxos = collection(UTXO._get_collection_name())
+    indexes = utxos.index_information()
+    if not _reservation_index_ready(indexes):
+        # Historical journal writers had no sparse index. Only an empty UTXO set is
+        # trivially safe here; a populated one requires offline preparation.
+        hint = {'hint': '_id_'} if '_id_' in indexes else {}
+        if utxos.find_one({}, {'_id': 1}, **hint) is None:
+            return
+        raise ValueError('unprepared nonempty UTXO collection: prepare the reservation index offline')
+    if utxos.find_one({'pending_alert': {'$exists': True}}, {'_id': 1}, hint=RESERVATION_INDEX) is not None:
         raise ValueError('outstanding vault reservation: cannot start legacy ingestion on this index')
 
 
@@ -61,6 +103,31 @@ def edits(original, desired):
     return [{'key': key, 'before': original.get(key), 'after': desired.get(key)}
             for key in sorted(original.keys() | desired.keys())
             if original.get(key) != desired.get(key)]
+
+
+# BTCV Core chainparams.cpp: mainnet, testnet, and regtest, respectively.
+ALERTS_HEIGHT_BY_GENESIS = {
+    '0000000028ce26975b32feda3d75ac3fe10372f75062366cfba4e934dcc6a48b': 58420,
+    '0000000092bdcddd8bcf515ef5820dfc05dafaf708d316b35cd841c59f498637': 92960,
+    '01cead69f2b51e214e1c2cd50e3744428cae526db87b2ff8f32489ff801d0f1d': 1,
+}
+
+
+def known_genesis(value):
+    if not isinstance(value, str) or value not in ALERTS_HEIGHT_BY_GENESIS:
+        raise ValueError('unknown BTCV Core genesis')
+    return value
+
+
+def alert_merkle_root(alerts):
+    # Core's BlockMerkleRoot(vatx) uses GetHash (txid), not the witness hash.
+    level = [bytes.fromhex(tx['txid'])[::-1] for tx in alerts]
+    while len(level) > 1:
+        if len(level) % 2:
+            level.append(level[-1])
+        level = [hashlib.sha256(hashlib.sha256(level[i] + level[i + 1]).digest()).digest()
+                 for i in range(0, len(level), 2)]
+    return level[0][::-1].hex() if level else '0' * 64
 
 
 def validate_accounting_shape(raw):
@@ -112,9 +179,9 @@ def validate_accounting_shape(raw):
                 raise ValueError('unsupported output address set')
 
 
-def check_reservation(spent, tx, height, groups):
+def check_reservation(spent, tx, height, groups, alerts_enabled):
     """Account confirmed totals, not wallet spendability; Core validates consensus timing."""
-    settlement = tx.type in ('TX_ALERT', 'TX_RECOVERY')
+    settlement = alerts_enabled and tx.type in ('TX_ALERT', 'TX_RECOVERY')
     if 'pending_alert' not in spent:
         if settlement:
             raise ValueError('vault settlement without an indexed reservation')
@@ -133,8 +200,17 @@ def check_reservation(spent, tx, height, groups):
     group[1] += 1
 
 
-def plan(raw, previous):
+def plan(raw, previous, genesis_hash):
     validate_accounting_shape(raw)
+    activation = ALERTS_HEIGHT_BY_GENESIS[known_genesis(genesis_hash)]
+    if raw['height'] == 0 and raw['hash'] != genesis_hash:
+        raise ValueError('block does not match Core genesis')
+    alerts_enabled = raw['height'] >= activation
+    if alerts_enabled:
+        if raw.get('alertmerkleroot') != alert_merkle_root(raw['atx']):
+            raise ValueError('missing or inconsistent alert merkle commitment')
+    elif raw['atx']:
+        raise ValueError('unexpected alert transaction list before activation')
     block = create_block(raw)
     if not previous:
         if block.height != 0 or block.previousblockhash not in ('', '0' * 64):
@@ -148,7 +224,7 @@ def plan(raw, previous):
         # Core records genesis but never adds its coinbase to the UTXO set.
         return {'schema': 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
                 'utxos': [], 'addresses': []}
-    active_alerts = block.atx if block.height > ALERT_INIT_WINDOW else ()
+    active_alerts = block.atx if alerts_enabled and block.height > ALERT_INIT_WINDOW else ()
     keys = {v.txid + str(v.vout) for tx in chain(block.tx, active_alerts) for v in tx.vin if 'coinbase' not in v}
     keys.update(tx.txid + str(v.n) for tx in block.tx for v in tx.vout)
     original = load(UTXO._get_collection_name(), keys)
@@ -161,7 +237,7 @@ def plan(raw, previous):
             spent = desired.pop(vin.txid + str(vin.vout), None)
             if spent is None:
                 raise ValueError('unknown or already spent input; block not committed')
-            check_reservation(spent, tx, block.height, groups)
+            check_reservation(spent, tx, block.height, groups, alerts_enabled)
             addr = spent['address']
             deltas[addr] = deltas.get(addr, Decimal(0)) - amount(spent['value'])
         if any(count != mark['input_count'] for mark, count in groups.values()):
@@ -248,6 +324,9 @@ def _apply(intent, check_hash):
     existing = blocks.find_one({'_id': block['_id']})
     if existing != (block if published else None):
         raise ValueError('block identity conflicts with the journal')
+    # Only bootstrap DDL on an empty journal replay. Never auto-build on a populated index.
+    if block['height'] == 0 and collection(UTXO._get_collection_name()).find_one({}, {'_id': 1}) is None:
+        prepare_legacy_reservation_index()
     apply_edits(UTXO._get_collection_name(), body['utxos'], published)
     apply_edits(Address._get_collection_name(), body['addresses'], published)
     if not published:
@@ -266,8 +345,10 @@ def apply_pending(check_hash):
     return True
 
 
-def ingest_block(raw, check_hash):
-    body = plan(raw, checkpoint())
+def ingest_block(raw, check_hash, genesis_hash=None):
+    if genesis_hash is None:
+        genesis_hash = known_genesis(check_hash(0))
+    body = plan(raw, checkpoint(), genesis_hash)
     intent = {'_id': KEY, 'body': body, 'checksum': hashlib.sha256(BSON.encode(body)).hexdigest()}
     if len(BSON.encode(intent)) >= MAX_BSON:
         raise ValueError('block journal exceeds BSON limit; no index changes applied')

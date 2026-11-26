@@ -9,7 +9,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from test_vault_journal import block, expected, hid, inventory, journal
+from test_vault_journal import block, block_id, expected, hid, inventory, journal
 from db.models import Address, Block, UTXO
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -56,6 +56,8 @@ def child(name, branch, tip, fault):
         raw = block(h, branch)
         if fault == "missing-atx" and h == 3:
             del raw["atx"]
+        if fault == "incomplete-atx" and h == tip:
+            raw["atx"] = []
         if fault == "empty-vout" and h == tip:
             (raw["atx"] or raw["tx"])[-1]["vout"] = []
         return raw
@@ -97,6 +99,7 @@ def child(name, branch, tip, fault):
             daemon.update_blockchain()
         except ValueError as exc:
             expected = {"missing-atx": "invalid or missing alert transaction list",
+                        "incomplete-atx": "missing or inconsistent alert merkle commitment",
                         "empty-vout": "invalid transaction inputs or outputs"}
             if str(exc) != expected.get(fault):
                 raise
@@ -131,13 +134,13 @@ class VaultMongoTest(unittest.TestCase):
         return inventory(self.docs(UTXO), self.docs(Address))
 
     def assert_chain(self, tip):
-        self.assertEqual([(b["height"], b["_id"]) for b in self.docs(Block)],
-                         [(h, hid(100 + h)) for h in range(tip + 1)])
+        self.assertEqual(sorted((b["height"], b["_id"]) for b in self.docs(Block)),
+                         [(h, block_id(h)) for h in range(tip + 1)])
 
     def assert_pending(self, tip):
         intents = list(self.db[journal.PENDING].find({}))
         self.assertEqual([(i["_id"], i["body"]["block"]["height"], i["body"]["block"]["_id"])
-                          for i in intents], [(journal.KEY, tip, hid(100 + tip))])
+                          for i in intents], [(journal.KEY, tip, block_id(tip))])
         self.assertEqual(intents[0]["body"]["schema"], 1 if tip == 0 else 2)
 
     def assert_clean(self, tip, branch):
@@ -167,6 +170,16 @@ class VaultMongoTest(unittest.TestCase):
         self.run_poll(branch, 6, "missing-atx", 83)
         self.assert_clean(2, branch)
         self.assert_idempotent(branch, 6)
+
+    def test_commitment_mismatch_preserves_funded_checkpoint_without_intent(self):
+        self.run_poll("settle", 1)
+        self.assert_clean(1, "settle")
+        before = [self.docs(m) for m in (Block, UTXO, Address)]
+        self.run_poll("settle", 2, "incomplete-atx", 83)
+        self.assert_clean(1, "settle")
+        self.assertEqual([self.docs(m) for m in (Block, UTXO, Address)], before)
+        self.run_poll("settle", 2)
+        self.assert_clean(2, "settle")
 
     def crash_sequence(self, branch, fault):
         self.run_poll(branch, 1)
@@ -242,7 +255,7 @@ class VaultMongoTest(unittest.TestCase):
 def load_tests(loader, tests, pattern):
     # The networkless CI discovery phase cannot perform a Mongo integration.
     # Explicit invocation always runs the suite and fails if the staging alias is absent.
-    if pattern == "test_*.py" and os.environ.get("DAEMON_RECOVERY_TEST_MONGO") is None:
+    if pattern is not None and os.environ.get("DAEMON_RECOVERY_TEST_MONGO") is None:
         return unittest.TestSuite()
     return tests
 

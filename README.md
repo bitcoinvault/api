@@ -85,11 +85,18 @@ when Core's height has not advanced. The pending record is then removed.
 Enable only with a verified starting index, journaled MongoDB storage and
 **one externally fenced writer**. Stop the previous writer before starting the
 new one; this protocol is not a lease or an automatic takeover mechanism.
-Recovery does not reconstruct previously missed balances. API queries are not
+Recovery does not reconstruct previously missed balances. Before upgrading
+from an earlier journal implementation, finish its pending block on the old
+version and verify the checkpoint, or rebuild into a separate database. New
+validation rules do not retroactively check previously recorded edits.
+API queries are not
 transactionally isolated from an in-progress block. This mode handles ordinary
 single-address outputs and explicit OP_RETURN data outputs only. Use verbose
-canonical Core blocks containing both `tx` and `atx`. Apply regular transactions
-first. Core stores an early `atx` but does not reserve its inputs at or below
+canonical Core blocks containing both `tx` and `atx`. Before vault activation,
+a vault type label on a regular transaction does not imply settlement. The
+writer identifies the network by its Core genesis and, from activation, checks
+the supplied alert transaction IDs against the block's `alertmerkleroot`.
+Apply regular transactions first. Core stores an early `atx` but does not reserve its inputs at or below
 absolute block height 144 (not 144 blocks from vault activation). Above that
 initialization window an alert in `atx` reserves its original inputs but does not credit a
 recipient. The address balance measures settled ownership, not ordinary
@@ -113,7 +120,15 @@ record to unblock a restart; retain the database for recovery or use a verified
 consistent backup. A clean block journal does not mean there are no outstanding
 vault alerts: reservations persist on UTXOs between blocks. This version checks
 for both conditions once at legacy daemon startup, before processing blocks;
-checking for reservations can scan the UTXO collection on an unindexed database.
+an untouched legacy database has no journal collection and needs no UTXO scan.
+This distinction requires the complete database, including empty collections:
+never drop the journal collection or switch writers on a partial restore.
+A fresh journal replay prepares the sparse reservation index at genesis. Before
+switching a populated index used by an earlier journal build back to legacy,
+stop all writers and verify the backup. If the reservation index is missing,
+prepare it offline on the intended UTXO collection (`pending_alert: 1`, sparse,
+name `legacy_pending_alert_sparse_v1`); the one-time build can scan existing
+data. Restart only after the compatibility check accepts the prepared database.
 The check does not fence another writer or protect a downgrade to an older binary. Do not reuse a
 legacy checkpoint with missing reservations, or point an older writer at an
 index containing them. Use a fresh replay or a verified compatible snapshot.

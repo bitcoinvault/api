@@ -17,6 +17,10 @@ def hexid(n):
     return format(n, "064x")
 
 
+def block_id(h):
+    return "01cead69f2b51e214e1c2cd50e3744428cae526db87b2ff8f32489ff801d0f1d" if h == 0 else hexid(h+1)
+
+
 def tx(n, inputs, outputs):
     return {"txid": hexid(n), "hash": hexid(n), "type": "TX_NONVAULT",
             "vin": [{"txid": hexid(i), "vout": v} for i, v in inputs] or [{"coinbase": "00"}],
@@ -35,9 +39,9 @@ def block(height):
                 tx(22, [(21, 0)], [("B", 5.125)])],
             3: [tx(23, [(22, 0)], [("C", 5.125)])]
         }[height]
-    return {"hash": hexid(height + 1), "previousblockhash": hexid(height),
+    return {"hash": block_id(height), "previousblockhash": block_id(height-1) if height else hexid(0),
             "height": height, "time": 1700000000 + 600 * height, "difficulty": 4.0,
-            "atx": [], "tx": transactions}
+            "atx": [], "alertmerkleroot": hexid(0), "tx": transactions}
 
 
 def child(name, tip, fault):
@@ -58,7 +62,7 @@ def child(name, tip, fault):
         if height not in (0, 1, 2, 3, SEED, SEED + 1, SEED + 2) or not 0 <= height <= tip:
             raise AssertionError("unexpected Core height: %s" % height)
         hashes.append(height)
-        return hexid(9000 if fault == "changed-hash" and height == tip else height + 1)
+        return hexid(9000) if fault == "changed-hash" and height == tip else block_id(height)
 
     def fetch(height):
         canonical(height)
@@ -185,7 +189,7 @@ class RecoveryTest(unittest.TestCase):
         for _ in range(2):
             self.cycle(db, 0)
             state = self.state(db)
-            self.assertEqual([(b["height"], b["_id"]) for b in state["blocks"]], [(0, hexid(1))])
+            self.assertEqual([(b["height"], b["_id"]) for b in state["blocks"]], [(0, block_id(0))])
             self.assertEqual(state["balances"], [])
             self.assertEqual(state["utxos"], [])
             self.assertEqual(db[journal.PENDING].count_documents({}), 0)
