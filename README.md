@@ -89,7 +89,9 @@ Recovery does not reconstruct previously missed balances. API queries are not
 transactionally isolated from an in-progress block. This mode handles ordinary
 single-address outputs and explicit OP_RETURN data outputs only. Use verbose
 canonical Core blocks containing both `tx` and `atx`. Apply regular transactions
-first. An alert in `atx` reserves its original inputs but does not credit a
+first. Core stores an early `atx` but does not reserve its inputs at or below
+absolute block height 144 (not 144 blocks from vault activation). Above that
+initialization window an alert in `atx` reserves its original inputs but does not credit a
 recipient. The address balance measures settled ownership, not ordinary
 spendability. A confirmed `TX_ALERT` or a `TX_RECOVERY` in `tx` consumes the
 corresponding reserved inputs and credits only the actual outputs. Core, not

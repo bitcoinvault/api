@@ -19,6 +19,8 @@ KEY = 'active'
 MAX_BSON = 16 * 1024 * 1024
 SAT = Decimal('0.00000001')
 WC = WriteConcern(w=1, j=True)
+# Core's ConnectBlock applies vatx only above this absolute height on all three BTCV networks.
+ALERT_INIT_WINDOW = 144
 
 
 def collection(name):
@@ -139,7 +141,8 @@ def plan(raw, previous):
         # Core records genesis but never adds its coinbase to the UTXO set.
         return {'schema': 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
                 'utxos': [], 'addresses': []}
-    keys = {v.txid + str(v.vout) for tx in chain(block.tx, block.atx) for v in tx.vin if 'coinbase' not in v}
+    active_alerts = block.atx if block.height > ALERT_INIT_WINDOW else ()
+    keys = {v.txid + str(v.vout) for tx in chain(block.tx, active_alerts) for v in tx.vin if 'coinbase' not in v}
     keys.update(tx.txid + str(v.n) for tx in block.tx for v in tx.vout)
     original = load(UTXO._get_collection_name(), keys)
     desired, deltas, created = original.copy(), {}, set()
@@ -170,7 +173,7 @@ def plan(raw, previous):
             deltas[addr] = deltas.get(addr, Decimal(0)) + amount(vout.value)
 
     # Core processes vatx after vtx: reserve original inputs without crediting prospective outputs.
-    for alert in block.atx:
+    for alert in active_alerts:
         mark = dict(txid=alert.txid, height=block.height, input_count=len(alert.vin))
         for vin in alert.vin:
             key = vin.txid + str(vin.vout)

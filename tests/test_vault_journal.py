@@ -98,8 +98,25 @@ class VaultPlannerTest(unittest.TestCase):
         def read(name, keys):
             rows = self.documents[name]
             return {k: copy.deepcopy(rows[k]) for k in keys if k in rows}
-        with patch.object(journal, "load", side_effect=read):
+        # The short fixture models already-initialized Core. Test the actual boundary separately.
+        with patch.object(journal, "load", side_effect=read), patch.object(journal, "ALERT_INIT_WINDOW", 0):
             return journal.plan(raw, self.tip)
+
+    def test_real_core_initialization_boundary_only_reserves_above_144(self):
+        self.advance(0, "settle")
+        self.advance(1, "settle")
+        for height, count in ((116, 0), (144, 0), (145, 2)):
+            raw = block(2, "settle")
+            raw["height"] = height
+            tip = {"_id": raw["previousblockhash"], "height": height-1}
+            def read(name, keys):
+                return {k: self.documents[name][k] for k in keys if k in self.documents[name]}
+            with self.subTest(height=height), patch.object(journal, "load", side_effect=read):
+                body = journal.plan(raw, tip)
+                marks = [row["after"]["pending_alert"] for row in body["utxos"]
+                         if row["after"] and "pending_alert" in row["after"]]
+                self.assertEqual([m["height"] for m in marks], [height] * count)
+                self.assertEqual(len(body["block"]["atx"]), 1)
 
     def advance(self, h, branch):
         body = self.plan(block(h, branch))

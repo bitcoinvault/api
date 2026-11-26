@@ -70,7 +70,9 @@ def child(name, branch, tip, fault):
     daemon.get_block_hash = lambda h: block(h, branch)["hash"]
     daemon.try_to_connect()
     daemon.update_analyzer()
-    with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert):
+    # This six-height fixture starts in initialized mode; the real 144/145 boundary is tested separately.
+    with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert), \
+            patch.object(journal, "ALERT_INIT_WINDOW", 0):
         try:
             daemon.update_blockchain()
         except ValueError as exc:
