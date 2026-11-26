@@ -1,4 +1,5 @@
 """Real standalone Mongo + fresh daemon processes; use run_daemon_recovery.py."""
+import copy
 import os
 import subprocess
 import sys
@@ -22,9 +23,10 @@ def block_id(h):
 
 
 def tx(n, inputs, outputs):
-    return {"txid": hexid(n), "hash": hexid(n), "type": "TX_NONVAULT",
+    return {"txid": hexid(n), "hash": hexid(n), "hex": format(n, "08x"), "type": "TX_NONVAULT",
             "vin": [{"txid": hexid(i), "vout": v} for i, v in inputs] or [{"coinbase": "00"}],
-            "vout": [{"n": i, "value": v, "scriptPubKey": {"addresses": [a]}}
+            "vout": [{"n": i, "value": v, "scriptPubKey": {"addresses": [a], "type": "pubkeyhash",
+                      "hex": "76a914" + "11"*20 + "88ac"}}
                      for i, (a, v) in enumerate(outputs)]}
 
 
@@ -39,8 +41,13 @@ def block(height):
                 tx(22, [(21, 0)], [("B", 5.125)])],
             3: [tx(23, [(22, 0)], [("C", 5.125)])]
         }[height]
+    # Fixed double-SHA256 root for txids 21,22; other fixture blocks are singletons.
+    # Keep this independent of the candidate: the baseline runner imports this file too.
+    root = ("e6378eead199946a6dcaac4aaee0c2987eaf2f8d548645c2be002405b803adc2"
+            if height == 2 else transactions[0]["txid"])
     return {"hash": block_id(height), "previousblockhash": block_id(height-1) if height else hexid(0),
             "height": height, "time": 1700000000 + 600 * height, "difficulty": 4.0,
+            "nTx": len(transactions), "merkleroot": root,
             "atx": [], "alertmerkleroot": hexid(0), "tx": transactions}
 
 
@@ -95,6 +102,19 @@ def child(name, tip, fault):
     daemon.get_block_count = lambda: tip
     daemon.get_block = fetch
     daemon.get_block_hash = canonical  # harmless on upstream, required by journal mode
+    if hasattr(daemon, "block_recovery"):
+        # The settlement is authentic but its input is not reserved. Supply a separate
+        # fixture response so the test reaches the accounting check without real RPC.
+        trusted = block(tip)["tx"][0] if fault in ("TX_ALERT", "TX_RECOVERY") else None
+        if trusted is not None:
+            trusted["type"] = fault
+
+        def decode(raw_hex):
+            if trusted is None or raw_hex != trusted["hex"]:
+                raise AssertionError("unexpected raw transaction decode")
+            return copy.deepcopy(trusted)
+
+        daemon.block_recovery.decode_raw_transaction = decode
     daemon.try_to_connect()
     daemon.update_analyzer()
     with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert):

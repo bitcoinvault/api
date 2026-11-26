@@ -9,7 +9,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from test_vault_journal import block, block_id, expected, hid, inventory, journal
+from test_vault_journal import block, block_id, expected, fixture_decode, hid, inventory, journal
 from db.models import Address, Block, UTXO
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -58,6 +58,12 @@ def child(name, branch, tip, fault):
             del raw["atx"]
         if fault == "incomplete-atx" and h == tip:
             raw["atx"] = []
+        if fault == "partial-alert-vin" and h == tip:
+            raw["atx"][0]["vin"].pop()
+        if fault == "missing-settlement" and h == tip:
+            raw["tx"].pop()
+        if fault == "different-payout" and h == tip:
+            raw["tx"][1]["vout"][0]["value"] -= 0.25
         if fault == "empty-vout" and h == tip:
             (raw["atx"] or raw["tx"])[-1]["vout"] = []
         return raw
@@ -94,12 +100,16 @@ def child(name, branch, tip, fault):
     daemon.update_analyzer()
     # This six-height fixture starts in initialized mode; the real 144/145 boundary is tested separately.
     with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert), \
+            patch.object(journal, "decode_raw_transaction", side_effect=fixture_decode), \
             patch.object(journal, "ALERT_INIT_WINDOW", 0):
         try:
             daemon.update_blockchain()
         except ValueError as exc:
             expected = {"missing-atx": "invalid or missing alert transaction list",
                         "incomplete-atx": "missing or inconsistent alert merkle commitment",
+                        "missing-settlement": "missing or inconsistent regular transaction count",
+                        "partial-alert-vin": "vault transaction accounting fields differ from its serialized form",
+                        "different-payout": "vault transaction accounting fields differ from its serialized form",
                         "empty-vout": "invalid transaction inputs or outputs"}
             if str(exc) != expected.get(fault):
                 raise
@@ -175,11 +185,24 @@ class VaultMongoTest(unittest.TestCase):
         self.run_poll("settle", 1)
         self.assert_clean(1, "settle")
         before = [self.docs(m) for m in (Block, UTXO, Address)]
-        self.run_poll("settle", 2, "incomplete-atx", 83)
-        self.assert_clean(1, "settle")
-        self.assertEqual([self.docs(m) for m in (Block, UTXO, Address)], before)
+        for fault in ("incomplete-atx", "partial-alert-vin"):
+            with self.subTest(fault=fault):
+                self.run_poll("settle", 2, fault, 83)
+                self.assert_clean(1, "settle")
+                self.assertEqual([self.docs(m) for m in (Block, UTXO, Address)], before)
         self.run_poll("settle", 2)
         self.assert_clean(2, "settle")
+
+    def test_regular_list_and_decoded_recovery_must_match_before_reservations_are_spent(self):
+        self.run_poll("recover", 4)
+        self.assert_clean(4, "recover")
+        before = [self.docs(m) for m in (Block, UTXO, Address)]
+        for fault in ("missing-settlement", "different-payout"):
+            with self.subTest(fault=fault):
+                self.run_poll("recover", 5, fault, 83)
+                self.assert_clean(4, "recover")
+                self.assertEqual([self.docs(m) for m in (Block, UTXO, Address)], before)
+        self.assert_idempotent("recover", 5)
 
     def crash_sequence(self, branch, fault):
         self.run_poll(branch, 1)

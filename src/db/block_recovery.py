@@ -10,6 +10,7 @@ from mongoengine.connection import get_db
 from pymongo import DeleteOne, InsertOne, ReplaceOne
 from pymongo.write_concern import WriteConcern
 
+from blockchain.rpc import decode_raw_transaction
 from db.db_utils import create_block
 from db.models import Address, Block, UTXO
 
@@ -119,15 +120,47 @@ def known_genesis(value):
     return value
 
 
-def alert_merkle_root(alerts):
-    # Core's BlockMerkleRoot(vatx) uses GetHash (txid), not the witness hash.
-    level = [bytes.fromhex(tx['txid'])[::-1] for tx in alerts]
+def transaction_merkle_root(transactions):
+    # Core commits to ordered txids, not witness hashes, for both transaction lists.
+    level = [bytes.fromhex(tx['txid'])[::-1] for tx in transactions]
     while len(level) > 1:
         if len(level) % 2:
             level.append(level[-1])
         level = [hashlib.sha256(hashlib.sha256(level[i] + level[i + 1]).digest()).digest()
                  for i in range(0, len(level), 2)]
     return level[0][::-1].hex() if level else '0' * 64
+
+
+alert_merkle_root = transaction_merkle_root
+
+
+def verify_vault_transaction(tx):
+    raw_hex = tx.get('hex')
+    if (not isinstance(raw_hex, str) or not 0 < len(raw_hex) <= 2 * 8_000_000
+            or len(raw_hex) % 2 or not re.fullmatch('[0-9a-f]+', raw_hex)):
+        raise ValueError('missing or invalid serialized vault transaction')
+    decoded = decode_raw_transaction(raw_hex)
+    if (not isinstance(decoded, dict) or decoded.get('txid') != tx['txid']
+            or decoded.get('hash') != tx['hash']):
+        raise ValueError('serialized vault transaction identity mismatch')
+    if decoded.get('type') != tx['type']:
+        raise ValueError('serialized vault transaction type mismatch')
+
+    def accounting_fields(row):
+        inputs = [(vin['txid'], vin['vout']) for vin in row['vin']]
+        outputs = []
+        for vout in row['vout']:
+            script = vout['scriptPubKey']
+            outputs.append((vout['n'], amount(vout['value']), script['hex'],
+                            script['type'], script.get('addresses', [])))
+        return inputs, outputs
+
+    try:
+        actual, expected = accounting_fields(tx), accounting_fields(decoded)
+    except (KeyError, TypeError, ArithmeticError):
+        raise ValueError('incomplete vault transaction accounting fields') from None
+    if actual != expected:
+        raise ValueError('vault transaction accounting fields differ from its serialized form')
 
 
 def validate_accounting_shape(raw, activation_height=None):
@@ -206,14 +239,21 @@ def check_reservation(spent, tx, height, groups, alerts_enabled):
 def plan(raw, previous, genesis_hash):
     activation = ALERTS_HEIGHT_BY_GENESIS[known_genesis(genesis_hash)]
     validate_accounting_shape(raw, activation)
+    if type(raw.get('nTx')) is not int or raw['nTx'] != len(raw['tx']):
+        raise ValueError('missing or inconsistent regular transaction count')
+    if raw.get('merkleroot') != transaction_merkle_root(raw['tx']):
+        raise ValueError('missing or inconsistent regular transaction merkle commitment')
     if raw['height'] == 0 and raw['hash'] != genesis_hash:
         raise ValueError('block does not match Core genesis')
     alerts_enabled = raw['height'] >= activation
     if alerts_enabled:
-        if raw.get('alertmerkleroot') != alert_merkle_root(raw['atx']):
+        if raw.get('alertmerkleroot') != transaction_merkle_root(raw['atx']):
             raise ValueError('missing or inconsistent alert merkle commitment')
     elif raw['atx']:
         raise ValueError('unexpected alert transaction list before activation')
+    for tx in chain(raw['tx'], raw['atx']):
+        if tx['type'] in ('TX_ALERT', 'TX_RECOVERY', 'TX_INSTANT'):
+            verify_vault_transaction(tx)
     block = create_block(raw)
     if not previous:
         if block.height != 0 or block.previousblockhash not in ('', '0' * 64):

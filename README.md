@@ -89,13 +89,19 @@ Recovery does not reconstruct previously missed balances. Before upgrading
 from an earlier journal implementation, finish its pending block on the old
 version and verify the checkpoint, or rebuild into a separate database. New
 validation rules do not retroactively check previously recorded edits.
-API queries are not
-transactionally isolated from an in-progress block. This mode handles ordinary
+API queries are not transactionally isolated from an in-progress block. This mode handles ordinary
 single-address outputs and explicit OP_RETURN data outputs only. Use verbose
 canonical Core blocks containing both `tx` and `atx`. Before vault activation,
 a vault type label on a regular transaction does not imply settlement. The
-writer identifies the network by its Core genesis and, from activation, checks
-the supplied alert transaction IDs against the block's `alertmerkleroot`.
+writer checks the regular transaction count and ordered IDs against `nTx` and
+`merkleroot` at every height. It identifies the network by its Core genesis
+and, from activation, also checks the alert IDs against `alertmerkleroot`.
+For each alert, recovery or instant transaction it asks the same trusted
+Core node to decode the supplied hex (`decoderawtransaction`) and checks the IDs, type,
+input outpoints, output amounts, scripts and recipients before journaling.
+The RPC account needs access to this read-only method. Blocks without these
+transaction types require no extra RPC. An unavailable decoder or inconsistent
+response stops indexing; the existing checkpoint is not advanced.
 Apply regular transactions first. Core stores an early `atx` but does not reserve its inputs at or below
 absolute block height 144 (not 144 blocks from vault activation). Above that
 initialization window an alert in `atx` reserves its original inputs but does not credit a

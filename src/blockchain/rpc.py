@@ -26,6 +26,19 @@ def get_block_count():
     return rpc.execute()
 
 
+def decode_raw_transaction(raw_hex):
+    # Ask the same Core/network to derive outpoints, amounts and destination addresses.
+    try:
+        response = RPC("decoderawtransaction", [raw_hex]).post(timeout=(3, 10), allow_redirects=False)
+        payload = response.json() if response.status_code == 200 else None
+    except (requests.exceptions.RequestException, ValueError):
+        payload = None
+    if (not isinstance(payload, dict) or payload.get('error') is not None
+            or not isinstance(payload.get('result'), dict)):
+        raise ValueError('Core could not decode the serialized vault transaction')
+    return payload['result']
+
+
 def get_hashrate():
     rpc = RPC("getnetworkhashps")
     return rpc.execute()
@@ -38,9 +51,11 @@ class RPC:
         self.jsonrpc = "2.0"
         self.id = rpc_id
 
+    def post(self, **options):
+        return requests.post(url, json=self.dict(), **options)
+
     def execute(self):
-        response = requests.post(url, json=self.dict()).json()
-        return response['result']
+        return self.post().json()['result']
 
     def dict(self):
         payload = {
