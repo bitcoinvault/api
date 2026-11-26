@@ -25,7 +25,7 @@ def transfer(txid, inputs, outputs):
 
 def block(tx):
     return {'hash': 'b' * 64, 'height': 1, 'previousblockhash': 'a' * 64,
-            'time': 1300000010, 'difficulty': 2.0, 'tx': tx}
+            'time': 1300000010, 'difficulty': 2.0, 'tx': tx, 'atx': []}
 
 
 @unittest.skipUnless(recovery, 'requires daemon runtime dependencies')
@@ -89,6 +89,7 @@ class PlanningTests(unittest.TestCase):
     def test_unsupported_shapes_do_not_create_an_intent(self):
         tx = transfer('d'*64, [{'coinbase': '00'}], [('a', 1), ('', 0)])
         transformations = [
+            lambda b: b.pop('atx'),
             lambda b: b.update(atx=[tx]),
             lambda b: b['tx'][0].pop('type'),
             lambda b: b['tx'][0].update(type='TX_ALERT'),

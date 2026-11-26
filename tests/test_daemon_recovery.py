@@ -103,7 +103,7 @@ def child(name, tip, fault):
         except ValueError as exc:
             if fault == "changed-hash" and "canonical" in str(exc) and tip in hashes:
                 return 82
-            if fault in ("TX_ALERT", "TX_RECOVERY") and "unsupported transaction type" in str(exc):
+            if fault in ("TX_ALERT", "TX_RECOVERY") and "without an indexed reservation" in str(exc):
                 return 83
             raise
     return 0

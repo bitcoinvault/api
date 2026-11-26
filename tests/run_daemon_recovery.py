@@ -31,6 +31,9 @@ def sources(revision):
     else:
         files = {p.relative_to(ROOT).as_posix(): p.read_bytes() for p in (ROOT / "src").rglob("*.py")}
     files[CASE] = (ROOT / "tests" / CASE).read_bytes()
+    if not revision:
+        for case in (ROOT / "tests").glob("test_vault_journal*.py"):
+            files[case.name] = case.read_bytes()
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
         for name, data in sorted(files.items()):
@@ -90,9 +93,10 @@ def main():
                "--label", label, "--name", mongo, "--tmpfs", "/data/db:rw,size=512m",
                "--tmpfs", "/data/configdb:rw,size=32m", mongo_image, "mongod", "--bind_ip_all",
                "--wiredTigerCacheSizeGB", "0.25")
-        tests = " RecoveryTest.test_midchunk_restart" if args.source == "baseline" else ""
+        tests = (CASE + " -v RecoveryTest.test_midchunk_restart" if args.source == "baseline"
+                 else "-m unittest discover -s . -p 'test_*.py' -v")
         script = ("mkdir /tmp/recovery && tar -xf - -C /tmp/recovery && cd /tmp/recovery && "
-                  "exec python -B " + CASE + " -v" + tests)
+                  "exec python -B " + tests)
         proc = subprocess.run(cli + ["run", "-i", "--pull=never", "--name", app, "--network", net,
                               "--label", label, "--read-only", "--tmpfs", "/tmp:rw,size=64m",
                               "-e", "DAEMON_RECOVERY_TEST_MONGO=recovery-mongo", "-e", "PYTHONPATH=/tmp/recovery/src",

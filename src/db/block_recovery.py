@@ -1,6 +1,7 @@
 """Single-writer, forward-only block accounting for standalone MongoDB."""
 import hashlib
 from decimal import Decimal
+from itertools import chain
 import re
 from time import time
 
@@ -62,14 +63,16 @@ def validate_accounting_shape(raw):
 
     if not hash_value(raw.get('hash')) or type(raw.get('height')) is not int or raw['height'] < 0:
         raise ValueError('invalid block identity')
-    if raw.get('atx', []) != []:
-        raise ValueError('alert transaction accounting is not supported')
+    if not isinstance(raw.get('atx'), list) or (raw['height'] == 0 and raw['atx']):
+        raise ValueError('invalid or missing alert transaction list')
     if not isinstance(raw.get('tx'), list) or not raw['tx']:
         raise ValueError('missing block transactions')
     txids = set()
-    for tx in raw['tx']:
-        if tx.get('type') not in ('TX_NONVAULT', 'TX_INSTANT'):
-            raise ValueError('unsupported transaction type in regular transaction list')
+    regular_types = ('TX_NONVAULT', 'TX_INSTANT', 'TX_ALERT', 'TX_RECOVERY')
+    for tx, allowed in chain(((tx, regular_types) for tx in raw['tx']),
+                             ((tx, ('TX_ALERT',)) for tx in raw['atx'])):
+        if not isinstance(tx, dict) or tx.get('type') not in allowed:
+            raise ValueError('unsupported transaction type for block list')
         if not hash_value(tx.get('txid')) or not hash_value(tx.get('hash')) or tx['txid'] in txids:
             raise ValueError('invalid or repeated transaction identity')
         txids.add(tx['txid'])
@@ -77,7 +80,8 @@ def validate_accounting_shape(raw):
             raise ValueError('invalid transaction inputs or outputs')
         for vin in tx['vin']:
             if 'coinbase' in vin:
-                if (len(tx['vin']) != 1 or not isinstance(vin['coinbase'], str) or not vin['coinbase']
+                if (tx['type'] != 'TX_NONVAULT' or len(tx['vin']) != 1
+                        or not isinstance(vin['coinbase'], str) or not vin['coinbase']
                         or 'txid' in vin or 'vout' in vin):
                     raise ValueError('ambiguous coinbase input')
             elif not hash_value(vin.get('txid')) or not output_index(vin.get('vout')):
@@ -98,6 +102,27 @@ def validate_accounting_shape(raw):
                 raise ValueError('unsupported output address set')
 
 
+def check_reservation(spent, tx, height, groups):
+    """Account confirmed totals, not wallet spendability; Core validates consensus timing."""
+    settlement = tx.type in ('TX_ALERT', 'TX_RECOVERY')
+    if 'pending_alert' not in spent:
+        if settlement:
+            raise ValueError('vault settlement without an indexed reservation')
+        return
+    mark = spent['pending_alert']
+    if (not isinstance(mark, dict) or not isinstance(mark.get('txid'), str)
+            or not re.fullmatch('[0-9a-f]{64}', mark['txid'])
+            or type(mark.get('height')) is not int or not 0 < mark['height'] < height
+            or type(mark.get('input_count')) is not int or mark['input_count'] <= 0):
+        raise ValueError('invalid indexed vault reservation')
+    if not settlement or (tx.type == 'TX_ALERT' and tx.txid != mark['txid']):
+        raise ValueError('transaction cannot spend the reserved input')
+    group = groups.setdefault(mark['txid'], [mark, 0])
+    if mark != group[0]:
+        raise ValueError('inconsistent vault reservation')
+    group[1] += 1
+
+
 def plan(raw, previous):
     validate_accounting_shape(raw)
     block = create_block(raw)
@@ -113,19 +138,23 @@ def plan(raw, previous):
         # Core records genesis but never adds its coinbase to the UTXO set.
         return {'schema': 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
                 'utxos': [], 'addresses': []}
-    keys = {v.txid + str(v.vout) for tx in block.tx for v in tx.vin if 'coinbase' not in v}
+    keys = {v.txid + str(v.vout) for tx in chain(block.tx, block.atx) for v in tx.vin if 'coinbase' not in v}
     keys.update(tx.txid + str(v.n) for tx in block.tx for v in tx.vout)
     original = load(UTXO._get_collection_name(), keys)
     desired, deltas, created = original.copy(), {}, set()
     for tx in block.tx:
+        groups = {}
         for vin in tx.vin:
             if 'coinbase' in vin:
                 continue
             spent = desired.pop(vin.txid + str(vin.vout), None)
             if spent is None:
                 raise ValueError('unknown or already spent input; block not committed')
+            check_reservation(spent, tx, block.height, groups)
             addr = spent['address']
             deltas[addr] = deltas.get(addr, Decimal(0)) - amount(spent['value'])
+        if any(count != mark['input_count'] for mark, count in groups.values()):
+            raise ValueError('incomplete vault settlement')
         for vout in tx.vout:
             addresses = vout.scriptPubKey.addresses
             if not addresses:
@@ -139,6 +168,16 @@ def plan(raw, previous):
             desired[key] = dict(_id=key, address=addr, value=vout.value, insert_time=stamp, update_time=stamp)
             deltas[addr] = deltas.get(addr, Decimal(0)) + amount(vout.value)
 
+    # Core processes vatx after vtx: reserve original inputs without crediting prospective outputs.
+    for alert in block.atx:
+        mark = dict(txid=alert.txid, height=block.height, input_count=len(alert.vin))
+        for vin in alert.vin:
+            key = vin.txid + str(vin.vout)
+            coin = desired.get(key)
+            if coin is None or 'pending_alert' in coin:
+                raise ValueError('missing or already reserved alert input')
+            desired[key] = dict(coin, pending_alert=mark, update_time=stamp)
+
     old_addresses = load(Address._get_collection_name(), deltas)
     new_addresses = {}
     for addr, delta in deltas.items():
@@ -148,7 +187,8 @@ def plan(raw, previous):
         if amount(stored) != balance:
             raise ValueError('balance cannot be represented by the existing schema')
         new_addresses[addr] = dict(doc, balance=stored, update_time=stamp) if delta or addr not in old_addresses else doc
-    return {'schema': 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
+    uses_vault = bool(block.atx) or any(tx.type in ('TX_ALERT', 'TX_RECOVERY') for tx in block.tx)
+    return {'schema': 2 if uses_vault else 1, 'previous': previous, 'block': block.to_mongo().to_dict(),
             'utxos': edits(original, desired), 'addresses': edits(old_addresses, new_addresses)}
 
 
@@ -175,7 +215,7 @@ def apply_edits(name, changes, already_committed):
 
 def valid_body(intent):
     body = intent['body']
-    if body['schema'] != 1 or hashlib.sha256(BSON.encode(body)).hexdigest() != intent['checksum']:
+    if body['schema'] not in (1, 2) or hashlib.sha256(BSON.encode(body)).hexdigest() != intent['checksum']:
         raise ValueError('invalid pending block journal')
     return body
 

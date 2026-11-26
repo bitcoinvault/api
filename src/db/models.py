@@ -10,10 +10,17 @@ class RequestCache(Document):
     last_accessed = IntField(required=True)
 
 
+class PendingAlert(EmbeddedDocument):
+    txid = StringField(required=True)
+    height = IntField(required=True)
+    input_count = IntField(required=True)
+
+
 class UTXO(Document):
     id = StringField(required=True, primary_key=True)
     address = StringField(required=True)
     value = FloatField(required=True, default=0.0)
+    pending_alert = EmbeddedDocumentField(PendingAlert)
     insert_time = FloatField(required=True)
     update_time = FloatField(required=True)
 
