@@ -36,3 +36,10 @@ jobs:
           --entrypoint python bitcoin-vault-api-ci
           -B -m unittest discover -s /tests -p 'test_*.py' -v
 
+      - name: Run daemon restart regression with standalone MongoDB
+        env:
+          MONGO_IMAGE: mongo:6.0.3@sha256:db616c3ceb0a82837d8ad6382ee93aff4fae89f9b7ad37b3e6c07f35f1559345
+        run: |
+          docker pull "$MONGO_IMAGE"
+          python3 -B tests/run_daemon_recovery.py worktree --runtime-image bitcoin-vault-api-ci --mongo-image "$MONGO_IMAGE"
+
