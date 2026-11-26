@@ -90,14 +90,15 @@ class PlanningTests(unittest.TestCase):
                     reason = 'regular transaction count' if key == 'nTx' else 'regular transaction merkle commitment'
                     self.assert_rejected_before_db(raw, reason, genesis)
 
-    def test_ingest_rejects_bad_regular_count_before_reading_checkpoint(self):
+    def test_ingest_rejects_bad_regular_count_before_accounting_or_journal_write(self):
         raw = block([transfer('d'*64, [{'coinbase': '00'}], [('a', 1)])])
         raw['nTx'] = True  # compares equal to 1 unless the integer type is checked
-        with patch.object(recovery, 'checkpoint', return_value=self.tip) as checkpoint, \
+        with patch.object(recovery, 'checkpoint', return_value=self.tip), \
+                patch.object(recovery, 'load') as balances, \
                 patch.object(recovery, 'collection') as db:
             with self.assertRaisesRegex(ValueError, 'regular transaction count'):
                 recovery.ingest_block(raw, lambda h: REGTEST if h == 0 else raw['hash'])
-            checkpoint.assert_not_called()
+            balances.assert_not_called()
             db.assert_not_called()
 
     def test_vault_typed_regular_projection_matches_separate_decode_before_db(self):
