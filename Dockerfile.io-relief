@@ -4,6 +4,7 @@ COPY src/db/db.py /app/db/db.py
 COPY src/db/models.py /app/db/models.py
 COPY src/db/block_recovery.py /app/db/block_recovery.py
 COPY src/blockchain/blockchain_analyzer.py /app/blockchain/blockchain_analyzer.py
+COPY src/blockchain/rpc.py /app/blockchain/rpc.py
 COPY tests/test_io_relief.py /opt/io-relief-tests/test_io_relief.py
 COPY tests/test_empty_supply.py /opt/io-relief-tests/test_empty_supply.py
 RUN cd /app && python -B -c "import daemon; from db.models import PendingAlert"

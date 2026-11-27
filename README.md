@@ -99,7 +99,13 @@ and, from activation, also checks the alert IDs against `alertmerkleroot`.
 For each alert, recovery or instant transaction it asks the same trusted
 Core node to decode the supplied hex (`decoderawtransaction`) and checks the IDs, type,
 input outpoints, output amounts, scripts and recipients before journaling.
-The RPC account needs access to this read-only method. Blocks without these
+The RPC account needs access to this read-only method. Configure the BTCV Core
+node used by the journal writer with `rpcserialversion=1` so verbose block RPCs
+return transaction hex including SegWit witness data. With
+`rpcserialversion=0`, a witness transaction's stripped hex can reproduce its
+`txid` but not its witness hash (`hash` / wtxid); the writer rejects the block
+before recording an intent. Do not bypass the txid, witness hash or type checks.
+Blocks without these
 transaction types require no extra RPC. An unavailable decoder or inconsistent
 response stops indexing; the existing checkpoint is not advanced.
 Apply regular transactions first. Core stores an early `atx` but does not reserve its inputs at or below
