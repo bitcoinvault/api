@@ -61,6 +61,11 @@ jobs:
             --security-opt no-new-privileges --pids-limit 128 --memory 256m --cpus 1 \
             --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/tests,readonly" \
             --entrypoint python "$BUILD_NAME" -B -m unittest discover -s /tests -p 'test_*.py' -v
+          docker run --rm --pull=never --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 128 --memory 256m --cpus 1 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/tests,target=/tests,readonly" \
+            --entrypoint python "$BUILD_NAME" -B /tests/runtime/check_reader_worker.py
 
       - name: Publish verified image
         env:

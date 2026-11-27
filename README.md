@@ -58,6 +58,28 @@ The query returns a list of 20 addresses with the most BTCV coins at the current
 
 The query returns the current blockchain height, network hashrate and the number of all coins currently in circulation.
 
+### Running the API without index-management privileges
+
+Set `API_BLOCK_INDEX_MODE=verify` on the HTTP process when the block height
+index is managed separately. Provision a visible, non-partial, non-sparse
+ascending index on `block.height` with simple collation before directing
+traffic to the reader. This configuration targets the normal simple-collation
+collection; the probe uses the collection's default query collation.
+Its MongoDB account needs permission to list indexes, but does not need
+permission to create that index. Each worker verifies the index on first
+use. If the index is absent or the catalog cannot be read, requests return
+HTTP 503 and retry the check on the next request. Restart workers to recheck
+after changing the index or replacing the database.
+
+The probe uses a short-lived connection to the same database with the same
+credentials. Server selection, connection and pool waits are limited to
+1.5 seconds each; the socket timeout is 2.5 seconds and reads are not
+retried. These are per-operation limits for the probe, not timeouts on
+normal wallet or chart queries.
+
+The default, `manage`, preserves the existing MongoEngine behavior. This
+setting does not change the daemon or make chart cache operations read-only.
+
 # Bitcoin Vault node
 
 This component gets the current version of the BTCV node from the Github repository: `https://github.com/bitcoinvault/bitcoinvault`.
