@@ -22,7 +22,11 @@ class ReaderIndexTests(unittest.TestCase):
         self.model = model_patch.start()
         self.addCleanup(model_patch.stop)
         self.model._meta = {}
-        self.collection = self.model._get_collection.return_value
+        client_patch = patch.object(reader, 'MongoClient')
+        self.make_client = client_patch.start()
+        self.addCleanup(client_patch.stop)
+        db = self.make_client.return_value.__enter__.return_value.get_default_database.return_value
+        self.collection = db.__getitem__.return_value
         self.ready = {'name': 'custom_height', 'key': {'height': 1}}
 
     def catalog(self, *rows):
@@ -38,6 +42,7 @@ class ReaderIndexTests(unittest.TestCase):
         self.assertIs(reader.configure_block_index('verify'), reader.require_block_index)
         self.assertIs(self.model._meta['auto_create_index'], False)
         self.model._get_collection.assert_not_called()
+        self.make_client.assert_not_called()
 
     def test_only_complete_visible_height_index_is_eligible(self):
         for row in ({}, {'key': {'height': -1}}, {'key': {'height': 1, 'hash': 1}},
@@ -55,6 +60,10 @@ class ReaderIndexTests(unittest.TestCase):
             reader.require_block_index(pid)
         self.assertEqual(self.collection.list_indexes.call_count, 2)
         self.assertEqual(self.collection.find_one.call_count, 2)
+        self.assertEqual(self.make_client.return_value.__exit__.call_count, 2)
+        self.make_client.assert_called_with(reader.get_db_uri(), connect=False, retryReads=False,
+                                            serverSelectionTimeoutMS=1500, connectTimeoutMS=1500,
+                                            socketTimeoutMS=2500, waitQueueTimeoutMS=1500)
         self.collection.find_one.assert_called_with({}, {'_id': 0, 'height': 1},
                                                   hint='custom_height', sort=[('height', -1)], max_time_ms=2000)
 

@@ -71,6 +71,12 @@ use. If the index is absent or the catalog cannot be read, requests return
 HTTP 503 and retry the check on the next request. Restart workers to recheck
 after changing the index or replacing the database.
 
+The probe uses a short-lived connection to the same database with the same
+credentials. Server selection, connection and pool waits are limited to
+1.5 seconds each; the socket timeout is 2.5 seconds and reads are not
+retried. These are per-operation limits for the probe, not timeouts on
+normal wallet or chart queries.
+
 The default, `manage`, preserves the existing MongoEngine behavior. This
 setting does not change the daemon or make chart cache operations read-only.
 
