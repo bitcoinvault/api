@@ -1,4 +1,5 @@
 """Real standalone Mongo + fresh daemon processes; use run_daemon_recovery.py."""
+import copy
 import os
 import subprocess
 import sys
@@ -17,10 +18,15 @@ def hexid(n):
     return format(n, "064x")
 
 
+def block_id(h):
+    return "01cead69f2b51e214e1c2cd50e3744428cae526db87b2ff8f32489ff801d0f1d" if h == 0 else hexid(h+1)
+
+
 def tx(n, inputs, outputs):
-    return {"txid": hexid(n), "hash": hexid(n), "type": "TX_NONVAULT",
+    return {"txid": hexid(n), "hash": hexid(n), "hex": format(n, "08x"), "type": "TX_NONVAULT",
             "vin": [{"txid": hexid(i), "vout": v} for i, v in inputs] or [{"coinbase": "00"}],
-            "vout": [{"n": i, "value": v, "scriptPubKey": {"addresses": [a]}}
+            "vout": [{"n": i, "value": v, "scriptPubKey": {"addresses": [a], "type": "pubkeyhash",
+                      "hex": "76a914" + "11"*20 + "88ac"}}
                      for i, (a, v) in enumerate(outputs)]}
 
 
@@ -35,9 +41,14 @@ def block(height):
                 tx(22, [(21, 0)], [("B", 5.125)])],
             3: [tx(23, [(22, 0)], [("C", 5.125)])]
         }[height]
-    return {"hash": hexid(height + 1), "previousblockhash": hexid(height),
+    # Fixed double-SHA256 root for txids 21,22; other fixture blocks are singletons.
+    # Keep this independent of the candidate: the baseline runner imports this file too.
+    root = ("e6378eead199946a6dcaac4aaee0c2987eaf2f8d548645c2be002405b803adc2"
+            if height == 2 else transactions[0]["txid"])
+    return {"hash": block_id(height), "previousblockhash": block_id(height-1) if height else hexid(0),
             "height": height, "time": 1700000000 + 600 * height, "difficulty": 4.0,
-            "atx": [], "tx": transactions}
+            "nTx": len(transactions), "merkleroot": root,
+            "atx": [], "alertmerkleroot": hexid(0), "tx": transactions}
 
 
 def child(name, tip, fault):
@@ -58,7 +69,7 @@ def child(name, tip, fault):
         if height not in (0, 1, 2, 3, SEED, SEED + 1, SEED + 2) or not 0 <= height <= tip:
             raise AssertionError("unexpected Core height: %s" % height)
         hashes.append(height)
-        return hexid(9000 if fault == "changed-hash" and height == tip else height + 1)
+        return hexid(9000) if fault == "changed-hash" and height == tip else block_id(height)
 
     def fetch(height):
         canonical(height)
@@ -91,6 +102,19 @@ def child(name, tip, fault):
     daemon.get_block_count = lambda: tip
     daemon.get_block = fetch
     daemon.get_block_hash = canonical  # harmless on upstream, required by journal mode
+    if hasattr(daemon, "block_recovery"):
+        # The settlement is authentic but its input is not reserved. Supply a separate
+        # fixture response so the test reaches the accounting check without real RPC.
+        trusted = block(tip)["tx"][0] if fault in ("TX_ALERT", "TX_RECOVERY") else None
+        if trusted is not None:
+            trusted["type"] = fault
+
+        def decode(raw_hex):
+            if trusted is None or raw_hex != trusted["hex"]:
+                raise AssertionError("unexpected raw transaction decode")
+            return copy.deepcopy(trusted)
+
+        daemon.block_recovery.decode_raw_transaction = decode
     daemon.try_to_connect()
     daemon.update_analyzer()
     with patch.object(Collection, "bulk_write", bulk), patch.object(Collection, "insert_one", insert):
@@ -103,7 +127,7 @@ def child(name, tip, fault):
         except ValueError as exc:
             if fault == "changed-hash" and "canonical" in str(exc) and tip in hashes:
                 return 82
-            if fault in ("TX_ALERT", "TX_RECOVERY") and "unsupported transaction type" in str(exc):
+            if fault in ("TX_ALERT", "TX_RECOVERY") and "without an indexed reservation" in str(exc):
                 return 83
             raise
     return 0
@@ -185,7 +209,7 @@ class RecoveryTest(unittest.TestCase):
         for _ in range(2):
             self.cycle(db, 0)
             state = self.state(db)
-            self.assertEqual([(b["height"], b["_id"]) for b in state["blocks"]], [(0, hexid(1))])
+            self.assertEqual([(b["height"], b["_id"]) for b in state["blocks"]], [(0, block_id(0))])
             self.assertEqual(state["balances"], [])
             self.assertEqual(state["utxos"], [])
             self.assertEqual(db[journal.PENDING].count_documents({}), 0)

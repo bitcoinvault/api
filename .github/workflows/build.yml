@@ -6,6 +6,9 @@ on:
       - opened
       - synchronize
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,6 +29,11 @@ jobs:
 
       - name: Build docker image
         run: docker build -t bitcoin-vault-api-ci .
+
+      - name: Exercise full and selective release recipes without registry credentials
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash .github/scripts/test_pr_recipes.sh "$PR_BASE_SHA"
 
       - name: Run offline regression tests in the built image
         run: >-

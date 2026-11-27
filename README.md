@@ -85,12 +85,39 @@ when Core's height has not advanced. The pending record is then removed.
 Enable only with a verified starting index, journaled MongoDB storage and
 **one externally fenced writer**. Stop the previous writer before starting the
 new one; this protocol is not a lease or an automatic takeover mechanism.
-Recovery does not reconstruct previously missed balances. API queries are not
-transactionally isolated from an in-progress block. This mode handles ordinary
-single-address outputs and explicit OP_RETURN data outputs only. Core must
-identify each regular transaction as `TX_NONVAULT` or `TX_INSTANT`. A fresh
+Recovery does not reconstruct previously missed balances. Before upgrading
+from an earlier journal implementation, finish its pending block on the old
+version and verify the checkpoint, or rebuild into a separate database. New
+validation rules do not retroactively check previously recorded edits.
+API queries are not transactionally isolated from an in-progress block. This mode handles ordinary
+single-address outputs and explicit OP_RETURN data outputs only. Use verbose
+canonical Core blocks containing both `tx` and `atx`. Before vault activation,
+a vault type label on a regular transaction does not imply settlement. The
+writer checks the regular transaction count and ordered IDs against `nTx` and
+`merkleroot` at every height. It identifies the network by its Core genesis
+and, from activation, also checks the alert IDs against `alertmerkleroot`.
+For each alert, recovery or instant transaction it asks the same trusted
+Core node to decode the supplied hex (`decoderawtransaction`) and checks the IDs, type,
+input outpoints, output amounts, scripts and recipients before journaling.
+The RPC account needs access to this read-only method. Configure the BTCV Core
+node used by the journal writer with `rpcserialversion=1` so verbose block RPCs
+return transaction hex including SegWit witness data. With
+`rpcserialversion=0`, a witness transaction's stripped hex can reproduce its
+`txid` but not its witness hash (`hash` / wtxid); the writer rejects the block
+before recording an intent. Do not bypass the txid, witness hash or type checks.
+Blocks without these
+transaction types require no extra RPC. An unavailable decoder or inconsistent
+response stops indexing; the existing checkpoint is not advanced.
+Apply regular transactions first. Core stores an early `atx` but does not reserve its inputs at or below
+absolute block height 144 (not 144 blocks from vault activation). Above that
+initialization window an alert in `atx` reserves its original inputs but does not credit a
+recipient. The address balance measures settled ownership, not ordinary
+spendability. A confirmed `TX_ALERT` or a `TX_RECOVERY` in `tx` consumes the
+corresponding reserved inputs and credits only the actual outputs. Core, not
+the indexer or the RPC transaction's current status, determines the canonical
+inclusion height and consensus delay. A fresh
 journal index checkpoints genesis without crediting its unspendable coinbase;
-this does not repair an existing index. A nonempty alert-transaction list,
+this does not repair an existing index. Missing or incomplete reservations,
 unsupported or missing transaction type, unknown input, unsupported output, conflicting stored
 state or journal at the BSON size limit is a stop, not a reason to skip a block.
 The writer rechecks the block hash with Core before publishing the checkpoint
@@ -102,7 +129,25 @@ Before reverting, stop the writer and establish that `daemon_pending_block`
 has no pending record and that the checkpoint and indexed data are consistent.
 Older binaries do not know about the journal. Do not discard the pending
 record to unblock a restart; retain the database for recovery or use a verified
-consistent backup. Measure throughput and disk I/O on a representative index
+consistent backup. A clean block journal does not mean there are no outstanding
+vault alerts: reservations persist on UTXOs between blocks. This version checks
+for both conditions once at legacy daemon startup, before processing blocks;
+an untouched legacy database has no journal collection and needs no UTXO scan.
+The daemon must be able to list collections on the selected database and read
+UTXO index metadata on a previously journaled database. A denied catalog read
+is an error, not evidence of an unused journal.
+This distinction requires the complete database, including empty collections:
+never drop the journal collection or switch writers on a partial restore.
+A fresh journal replay prepares the sparse reservation index at genesis. Before
+switching a populated index used by an earlier journal build back to legacy,
+stop all writers and verify the backup. If the reservation index is missing,
+prepare it offline on the intended UTXO collection (`pending_alert: 1`, sparse,
+name `legacy_pending_alert_sparse_v1`); the one-time build can scan existing
+data. Restart only after the compatibility check accepts the prepared database.
+The check does not fence another writer or protect a downgrade to an older binary. Do not reuse a
+legacy checkpoint with missing reservations, or point an older writer at an
+index containing them. Use a fresh replay or a verified compatible snapshot.
+Measure throughput and disk I/O on a representative index
 before enabling this mode on a serving database.
 
 With a locally built API image and a locally available MongoDB image, run the
